@@ -29,15 +29,19 @@ class tpsc_solver:
     Model Parameters:
     double n        : total electron density
         default     : n = 1.0 (half-filling)
+    double U        : Hubbard U
+        default     : U = 2.0
+    double beta     : inverse temperature
+        default     : beta = 2.5
+    Gf eps_k        : Dispersion relation (passed as a Green's function object)
+        default     : 2D square lattice nearest neighbour only TB model on a 128x128 k_mesh
     double docc     : double occupation <n_up*n_down>
         default     : docc = None
                     : if not None, will ignore TPSC-Ansatz and use passed docc to calculate the sum rules
-    double U        : Hubbard U
-        default     : U = 2.0
-    Gf eps_k        : Dispersion relation (passed as a Green's function object)
-        default     : 2D square lattice nearest neighbour only TB model on a 128x128 k_mesh
-    double beta     : inverse temperature
-        default     : beta = 2.5
+    Gf g0  _bubble  : non-interacting Green's function, with which the bubble is formed
+        default     : g0_bubble = None
+                    : if None, will calculate g0 from scratch
+ 
     
     Calculation Parameters:
     float w_max     : maximum frequency for DLR Gfs
@@ -57,7 +61,7 @@ class tpsc_solver:
     """
     
     ### CLASS CONSTRUCTOR ###
-    def __init__(self, n=1., docc=None, U=2., eps_k=None, beta=2.5, w_max=10.0, eps=1e-14, Usp_tol=1e-12, Uch_tol=None, verbose=True, plot=True):
+    def __init__(self, n=1., U=2., beta=2.5, eps_k=None, docc=None, g0_bubble=None, w_max=10.0, eps=1e-14, Usp_tol=1e-12, Uch_tol=None, verbose=True, plot=True):
         """
         Initialize a tpsc_solver object.
         """
@@ -68,13 +72,6 @@ class tpsc_solver:
         self.U = U
         self.beta = beta
         
-        # check if TPSC-Ansatz or docc are to be used in the sum rules
-        if docc == None:
-            self.use_tpsc_ansatz = True
-        else:
-            self.use_tpsc_ansatz = False
-            self.docc = docc
-        
         # get dispersion relation
         if eps_k == None:
             # run with default values
@@ -82,6 +79,19 @@ class tpsc_solver:
             self.eps_k = disp.eps_k
         else:
             self.eps_k = eps_k
+
+        # check if TPSC-Ansatz or docc are to be used in the sum rules
+        if docc == None:
+            self.use_tpsc_ansatz = True
+        else:
+            self.use_tpsc_ansatz = False
+            self.docc = docc
+
+        # check whether a g0 for the bubble has been passed
+        if g0_bubble == None:
+            self.g0_bubble = None
+        else:
+            self.g0_bubble = g0_bubble
 
         # set calculation parameters
         self.w_max = w_max
@@ -389,6 +399,48 @@ class tpsc_solver:
             
         # return new gf-object
         return result
+
+    def n_root(self, mu, Sigma=None):
+        """
+        Calculates the density as a function of mu.
+
+        Parameters
+        ----------
+        self    : self
+        mu      : chemical potential
+        Sigma   : self-energy (must be MeshDLRImFreq)
+                : if None, calculates non-interacting density
+        """
+
+        if Sigma is not None:
+            # Dyson equation
+            g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=self.iw_dlr_mesh))
+            G2 = inverse(g0_dlr_wk_inv - Sigma)
+        elif Sigma == None:
+            # Only non-interacting Green's function
+            G2 = lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
+        
+        # return density
+        return self.k_iw_sum(G2) - self.n/2     # n/2 because G2 is Green's function per spin.
+    
+    def calc_mu(self, Sigma=None):
+        """
+        Calculates the chemical potential for the given self-energy.
+
+        Parameters
+        ----------
+        self    : self
+        Sigma   : self-energy (must be MeshDLRImFreq)
+                : if None, Sigma is set to zero
+        """
+
+        # find the mu that leads to the correct density
+        mu_min = np.min(self.eps_k.data.real)
+        mu_max = np.max(self.eps_k.data.real)
+        mu_result = brentq(lambda m: self.n_root(mu=m, Sigma=Sigma), mu_min, mu_max)
+
+        # return the result
+        return mu_result
     ### HELPER FUNCTIONS ###
 
 
@@ -403,26 +455,34 @@ class tpsc_solver:
         
         Returns
         -------
-        Sets    : self.iw_dlr_mesh, imaginary times DLR mesh
-                  self.mu1,         non-interacting chemical potential
-                  self.g0_dlr_wk,   non-interacting Green's function with correct chemical potential
-                  self.chi0_dlr_wk, target_shape=(1,1,1,1)
+        Sets    :   if g0 is calculated from scratch:
+                        self.iw_dlr_mesh, imaginary times DLR mesh
+                        self.mu1,         non-interacting chemical potential
+                        self.g0_dlr_wk,   non-interacting Green's function with correct chemical potential
+                    always:
+                    self.chi0_dlr_wk, target_shape=(1,1,1,1)
         """
 
-        # calculate imaginary time mesh
-        self.iw_dlr_mesh = MeshDLRImFreq(beta=self.beta, statistic='Fermion', w_max=self.w_max, eps=self.eps)
+        # If no g0 for the bubble has been passed, calculate from scratch
+        if self.g0_bubble == None:
 
-        # get mu from n (need for G0 and bubble)
-        if self.n == 1:
-            self.mu1 = 0.0  # half-filling
+            # calculate imaginary time mesh
+            self.iw_dlr_mesh = MeshDLRImFreq(beta=self.beta, statistic='Fermion', w_max=self.w_max, eps=self.eps)
+
+            # get mu from n (need for G0 and bubble)
+            if self.n == 1:
+                self.mu1 = 0.0  # half-filling
+            else:
+                self.mu1 = self.calc_mu(Sigma=None)
+            
+            # calculate non-interacting Green's function of the model
+            self.g0_dlr_wk = lattice_dyson_g0_wk(mu=self.mu1, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
+        
+        # otherwise, use passed g0
         else:
-            mu_min = np.min(self.eps_k.data.real)
-            mu_max = np.max(self.eps_k.data.real)
-            self.mu1 = brentq(lambda m: self.n_root(mu=m, Sigma=None), mu_min, mu_max)
-        
-        # calculate non-interacting Green's function of the model
-        self.g0_dlr_wk = lattice_dyson_g0_wk(mu=self.mu1, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
-        
+            self.iw_dlr_mesh = self.g0_bubble.mesh.components[0]
+            self.g0_dlr_wk = self.g0_bubble
+
         # calculate the non-interacting susceptibility of the model
         self.chi0_dlr_wk = 2*imtime_bubble_chi0_wk(self.g0_dlr_wk, nw=2, verbose=False)
 
@@ -615,29 +675,6 @@ class tpsc_solver:
         self.Sigma_dlr_wk = Sigma_Hartree_dlr_wk + self.Sigma2_dlr_wk
         self.Sigma_wk = Sigma_Hartree_wk + self.Sigma2_wk
 
-    def n_root(self, mu, Sigma=None):
-        """
-        Calculates the density as a function of mu.
-
-        Parameters
-        ----------
-        self    : self
-        mu      : chemical potential
-        Sigma   : self-energy (must be MeshDLRImFreq)
-                : if None, calculates non-interacting density
-        """
-
-        if Sigma is not None:
-            # Dyson equation
-            g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=self.iw_dlr_mesh))
-            G2 = inverse(g0_dlr_wk_inv - Sigma)
-        elif Sigma == None:
-            # Only non-interacting Green's function
-            G2 = lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
-        
-        # return density
-        return self.k_iw_sum(G2) - self.n/2     # n/2 because G2 is Green's function per spin.
-    
     def calc_G2_from_Sigma(self):
         """
         Calculates the second level of approximation of the Green's function from Sigma.
@@ -655,10 +692,7 @@ class tpsc_solver:
         Sets self.G2 (DLR representation) and self.mu2.
         """
         
-        # find the mu that leads to the correct density
-        mu_min = np.min(self.eps_k.data.real)
-        mu_max = np.max(self.eps_k.data.real)
-        self.mu2 = brentq(lambda m: self.n_root(mu=m, Sigma=self.Sigma_dlr_wk), mu_min, mu_max)
+        self.mu2 = self.calc_mu(Sigma=self.Sigma_dlr_wk)
 
         # calculate G2
         g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=self.mu2, e_k=self.eps_k, mesh=self.iw_dlr_mesh))

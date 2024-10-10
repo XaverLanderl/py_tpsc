@@ -1,1 +1,1 @@
-# py_tpsc
+# tpsc solver using Py_TRIQS
