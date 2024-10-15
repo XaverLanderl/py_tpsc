@@ -62,7 +62,7 @@ if False:
     plt.title('diffnorm of k-dependent nonlocals = ' + str(np.linalg.norm(Sigma_nonlocal_from_dlr.data - Sigma_nonlocal.data)))
 
 ### compare local Green's functions
-if True:
+if False:
 
     # information on mu
     print('mu2 = ' + str(model.mu2))
