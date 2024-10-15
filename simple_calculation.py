@@ -34,7 +34,7 @@ def TPSC_GG(num_iter, n, U, beta, eps_k):
     # return results
     return mus, Usps, Uchs, diffnorms
 
-Ulist = np.linspace(0.5,5.0,5)
+Ulist = np.linspace(0.5,3.0,5)
 blist = np.linspace(1.0,30.0,5)
 mu = np.zeros(shape=(blist.size, Ulist.size))
 Usp = np.zeros(shape=(blist.size, Ulist.size))
@@ -56,7 +56,7 @@ for ind_b, beta in enumerate(blist):
         mu[ind_b, ind_U] = np.std(mus[5:])
         Usp[ind_b, ind_U] = np.std(Usp[5:])
         Uch[ind_b, ind_U] = np.std(Uch[5:])
-        diffnorm[ind_b, ind_U] = np.mean(diffnorm[10:])
+        diffnorm[ind_b, ind_U] = np.mean(diffnorm[5:])
 
 with HDFArchive('TPSC_GG.h5', 'w') as A:
     A['mu'] = mu

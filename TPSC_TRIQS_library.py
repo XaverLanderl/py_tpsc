@@ -344,6 +344,7 @@ class tpsc_solver:
         Requires
         --------
         g_dlr_wk must be defined on a MeshDLRImFreq-mesh.
+        K-dependence must be along the second axis.
         
         Parameters
         ----------
@@ -630,7 +631,7 @@ class tpsc_solver:
 
         Returns
         -------
-        Sets self.Sigma
+        Sets self.Sigma (WITHOUT the Hartree-term!)
         """
 
         # define effective potential
@@ -650,30 +651,12 @@ class tpsc_solver:
         g0_dlr_tr = fourier_wr_to_tr(g0_dlr_wr)
 
         # multiply V(-t,-r) * G0(t,r) = Sigma(t,r)
-        Sigma2_dlr_tr = g0_dlr_tr.copy()
+        Sigma2_dlr_tr = g0_dlr_tr.copy()    # the 2 means second level of approximation
         Sigma2_dlr_tr.data[:] = V.data[:] * g0_dlr_tr.data[:]
 
         # transform Sigma(t,r) to Sigma(w,k)
         Sigma2_dlr_wr = fourier_tr_to_wr(Sigma2_dlr_tr)
         self.Sigma2_dlr_wk = fourier_wr_to_wk(Sigma2_dlr_wr)
-
-        # transform Sigma(w,k) to full ImFreq-mesh
-        Sigma2_dlr = make_gf_dlr(self.Sigma2_dlr_wk)
-        self.Sigma2_wk = make_gf_imfreq(Sigma2_dlr, n_iw=128)
-
-
-        # get Hartree-Term in dlr representation
-        Sigma_Hartree_dlr_wk = self.Sigma2_dlr_wk.copy()
-        Sigma_Hartree_dlr_wk.data[:] = self.U * self.n/2
-
-        # get Sigma_Hartree in MeshImFreq representation
-        Sigma_Hartree_wk = self.Sigma2_wk.copy()
-        Sigma_Hartree_wk.data[:] = self.U * self.n/2
-
-        
-        # get full self-energy
-        self.Sigma_dlr_wk = Sigma_Hartree_dlr_wk + self.Sigma2_dlr_wk
-        self.Sigma_wk = Sigma_Hartree_wk + self.Sigma2_wk
 
     def calc_G2_from_Sigma(self):
         """
@@ -689,14 +672,14 @@ class tpsc_solver:
 
         Returns
         -------
-        Sets self.G2 (DLR representation) and self.mu2.
+        Sets self.G2 (DLR representation) and self.mu2 (WITHOUT the Hartree-term!).
         """
         
-        self.mu2 = self.calc_mu(Sigma=self.Sigma_dlr_wk)
+        self.mu2 = self.calc_mu(Sigma=self.Sigma2_dlr_wk)
 
         # calculate G2
         g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=self.mu2, e_k=self.eps_k, mesh=self.iw_dlr_mesh))
-        self.G2 = inverse(g0_dlr_wk_inv - self.Sigma_dlr_wk)
+        self.G2 = inverse(g0_dlr_wk_inv - self.Sigma2_dlr_wk)
     ### SECOND LEVEL OF APPROXIMATION ###
 
 
