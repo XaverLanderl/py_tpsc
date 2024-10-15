@@ -69,13 +69,19 @@ if False:
     print('mu_phys = ' + str(model.mu2_phys))
 
 ### with Hartree-term
-Sigma_dlr_k = make_gf_dlr(Sigma_dlr_wk)
-Sigma_wk = make_gf_imfreq(Sigma_dlr_k, n_iw)
-Sigma_Hartree = Sigma_wk.copy()
-Sigma_Hartree.zero()
-Sigma_Hartree.data[:] = model.U * model.n/2
-Sigma_full_wk = Sigma_wk.copy()
-Sigma_full_wk.zero()
-Sigma_full_wk = Sigma_Hartree + Sigma_wk
+if False:
+    Sigma_dlr_k = make_gf_dlr(Sigma_dlr_wk)
+    Sigma_wk = make_gf_imfreq(Sigma_dlr_k, n_iw)
+    Sigma_Hartree = Sigma_wk.copy()
+    Sigma_Hartree.zero()
+    Sigma_Hartree.data[:] = model.U * model.n/2
+    Sigma_full_wk = Sigma_wk.copy()
+    Sigma_full_wk.zero()
+    Sigma_full_wk = Sigma_Hartree + Sigma_wk
 
-oplot(model.k_sum(Sigma_full_wk))
+    oplot(model.k_sum(Sigma_full_wk))
+
+### non-local
+Sigma_dlr_nonloc_wk = model.get_nonlocal_gf(Sigma_dlr_wk)
+oplot(model.k_sum(Sigma_dlr_nonloc_wk))
+plt.title(np.linalg.norm(model.k_sum(Sigma_dlr_nonloc_wk).data))

@@ -443,36 +443,59 @@ class tpsc_solver:
         # return the result
         return mu_result
     
-    def subtract_local_gf(self, g_iw_k, g_local):
+    def add_local_gf(self, g_w_k, g_local_w):
         """
-        Subtracts a local (k-independent) Green's function from a k-dependent Green's function.
+        Adds a local (k-independent) Green's function to a k-dependent Green's function.
 
         Parameters
         ----------
-        self    : self
-        g_iw_k  : k-dependent Green's function; iw must be on first axis.
-        g_local : k-independent Green's function to be subtracted
-                : must both have the same Matsubara-mesh
+        self        : self
+        g_iw_k      : k-dependent Green's function; iw must be on first axis.
+        g_local_w   : k-independent Green's function to be subtracted
+                    : must both have the same Matsubara-mesh
 
         Returns
         -------
-        result  : TRIQS Green's function object of target_shape=(1,1)
+        result      : TRIQS Green's function object of target_shape=(1,1)
         """
 
         # extract data of k-dependent gf
-        g_iw_k_data = np.squeeze(g_iw_k.data)
+        g_w_k_data = np.squeeze(g_w_k.data)
 
         # extract data of local gf; reshape for broadcasting reasons
-        g_local_data = np.squeeze(g_local.data).reshape(-1,1)
+        g_local_w_data = np.squeeze(g_local_w.data).reshape(-1,1)
 
         # initialize result
-        result = Gf(mesh = g_iw_k.mesh, target_shape=(1,1))
+        result = Gf(mesh = g_w_k.mesh, target_shape=(1,1))
         
         # feed values (utilize numpy broadcasting!)
-        result.data[:,:,0,0] = g_iw_k_data - g_local_data
+        result.data[:,:,0,0] = g_w_k_data + g_local_w_data
 
         # return result
         return result
+
+    def get_nonlocal_gf(self, g_w_k):
+        """
+        Removes the local part of passed Green's function.
+
+        Parameters
+        ----------
+        self        : self
+        g_iw_k      : Green's function; iw must be on first axis
+
+        Returns
+        -------
+        g_nonloc_wk : non-local part of passed Green's function, same target_shape
+        """
+
+        # get local part
+        g_local_w = self.k_sum(g_w_k)
+
+        # subtract local part
+        g_nonloc_wk = self.add_local_gf(g_w_k, -1*g_local_w)
+
+        # return result
+        return g_nonloc_wk
     ### HELPER FUNCTIONS ###
 
 
