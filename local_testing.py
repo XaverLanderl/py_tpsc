@@ -1,6 +1,6 @@
 from TPSC_TRIQS_library import *
 
-model = tpsc_solver(n=0.875, plot=False)
+model = tpsc_solver(plot=False)
 model.run()
 
 
@@ -67,3 +67,15 @@ if True:
     # information on mu
     print('mu2 = ' + str(model.mu2))
     print('mu_phys = ' + str(model.mu2_phys))
+
+### with Hartree-term
+Sigma_dlr_k = make_gf_dlr(Sigma_dlr_wk)
+Sigma_wk = make_gf_imfreq(Sigma_dlr_k, n_iw)
+Sigma_Hartree = Sigma_wk.copy()
+Sigma_Hartree.zero()
+Sigma_Hartree.data[:] = model.U * model.n/2
+Sigma_full_wk = Sigma_wk.copy()
+Sigma_full_wk.zero()
+Sigma_full_wk = Sigma_Hartree + Sigma_wk
+
+oplot(model.k_sum(Sigma_full_wk))
