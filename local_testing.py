@@ -1,36 +1,5 @@
 from TPSC_TRIQS_library import *
 
-def subtract_local_gf(g_iw_k, g_local):
-    """
-    Subtracts a local (k-independent) Green's function from a k-dependent Green's function.
-
-    Parameters
-    ----------
-    self    : self
-    g_iw_k  : k-dependent Green's function; iw must be on first axis.
-    g_local : k-independent Green's function to be subtracted
-            : must both have the same Matsubara-mesh
-
-    Returns
-    -------
-    result  : TRIQS Green's function object
-    """
-
-    # extract data of k-dependent gf
-    g_iw_k_data = np.squeeze(g_iw_k.data)
-
-    # extract data of local gf; reshape for broadcasting reasons
-    g_local_data = np.squeeze(g_local.data).reshape(-1,1)
-
-    # initialize result
-    result = Gf(mesh = g_iw_k.mesh, target_shape=(1,1))
-    
-    # feed values
-    result.data[:,:,0,0] = g_iw_k_data - g_local_data
-
-    # return result
-    return result
-
 model = tpsc_solver(n=0.875, plot=False)
 model.run()
 
@@ -77,7 +46,7 @@ if False:
 if False:
     # with dlr, converersion at the end
     Sigma_dlr_local = model.k_sum(Sigma_dlr_wk)
-    Sigma_dlr_nonlocal = subtract_local_gf(Sigma_dlr_wk, Sigma_dlr_local)
+    Sigma_dlr_nonlocal = model.subtract_local_gf(Sigma_dlr_wk, Sigma_dlr_local)
     Sigma_coeff_nonlocal = make_gf_dlr(Sigma_dlr_nonlocal)
     Sigma_nonlocal_from_dlr = make_gf_imfreq(Sigma_coeff_nonlocal, n_iw)
 
@@ -85,7 +54,7 @@ if False:
     Sigma_dlr_k = make_gf_dlr(Sigma_dlr_wk)
     Sigma_wk_from_dlr = make_gf_imfreq(Sigma_dlr_k, n_iw)
     Sigma_local_from_dlr = model.k_sum(Sigma_wk_from_dlr)
-    Sigma_nonlocal = subtract_local_gf(Sigma_wk_from_dlr, Sigma_local_from_dlr)
+    Sigma_nonlocal = model.subtract_local_gf(Sigma_wk_from_dlr, Sigma_local_from_dlr)
 
     # plot
     oplot(model.k_sum(Sigma_nonlocal_from_dlr), '-', label='conversersion at end')
@@ -97,4 +66,4 @@ if True:
 
     # information on mu
     print('mu2 = ' + str(model.mu2))
-    print('mu_phys = ' + str(model.mu2 + model.U*model.n/2))
+    print('mu_phys = ' + str(model.mu2_phys))

@@ -442,6 +442,37 @@ class tpsc_solver:
 
         # return the result
         return mu_result
+    
+    def subtract_local_gf(self, g_iw_k, g_local):
+        """
+        Subtracts a local (k-independent) Green's function from a k-dependent Green's function.
+
+        Parameters
+        ----------
+        self    : self
+        g_iw_k  : k-dependent Green's function; iw must be on first axis.
+        g_local : k-independent Green's function to be subtracted
+                : must both have the same Matsubara-mesh
+
+        Returns
+        -------
+        result  : TRIQS Green's function object of target_shape=(1,1)
+        """
+
+        # extract data of k-dependent gf
+        g_iw_k_data = np.squeeze(g_iw_k.data)
+
+        # extract data of local gf; reshape for broadcasting reasons
+        g_local_data = np.squeeze(g_local.data).reshape(-1,1)
+
+        # initialize result
+        result = Gf(mesh = g_iw_k.mesh, target_shape=(1,1))
+        
+        # feed values (utilize numpy broadcasting!)
+        result.data[:,:,0,0] = g_iw_k_data - g_local_data
+
+        # return result
+        return result
     ### HELPER FUNCTIONS ###
 
 
@@ -672,10 +703,12 @@ class tpsc_solver:
 
         Returns
         -------
-        Sets self.G2 (DLR representation) and self.mu2 (WITHOUT the Hartree-term!).
+        Sets self.G2 (DLR representation),
+             self.mu2 (WITHOUT the Hartree-term!) and self.mu2_phys (WITH the Hartree-term!).
         """
         
         self.mu2 = self.calc_mu(Sigma=self.Sigma2_dlr_wk)
+        self.mu2_phys = self.mu2 + self.U * self.n/2
 
         # calculate G2
         g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=self.mu2, e_k=self.eps_k, mesh=self.iw_dlr_mesh))
