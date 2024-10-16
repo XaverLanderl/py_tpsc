@@ -33,30 +33,29 @@ class tpsc_solver:
         default     : U = 2.0
     double beta     : inverse temperature
         default     : beta = 2.5
-    Gf eps_k        : Dispersion relation (passed as a Green's function object)
+    Gf eps_k        : Dispersion relation (TRIQS GF object, mesh=BrZoneMesh)
         default     : 2D square lattice nearest neighbour only TB model on a 128x128 k_mesh
     double docc     : double occupation <n_up*n_down>
         default     : docc = None
                     : if not None, will ignore TPSC-Ansatz and use passed docc to calculate the sum rules
-    Gf g0  _bubble  : non-interacting Green's function, with which the bubble is formed
+    Gf g0_bubble    : non-interacting Green's function, with which the bubble is formed
         default     : g0_bubble = None
                     : if None, will calculate g0 from scratch
  
-    
     Calculation Parameters:
-    float w_max     : maximum frequency for DLR Gfs
+    float w_max     : maximum frequency for Discrete Lehmann Representation (DLR)
         default     : w_max = 10.0
-    float eps       : accuracy of DLR mesh
+    float eps       : accuracy of DLR
         default     : eps = 1e-14
-    double Usp_tol  : accuracy for solution of Usp
+    double Usp_tol  : accuracy of solution of Usp
         default     : Usp_tol = 1e-12
-    double Uch_tol  : accuracy for solution of Uch
+    double Uch_tol  : accuracy of solution of Uch
         default     : Uch_tol = None, sets Uch_tol = Usp_tol
     
-    Other:
+    Boolean Parameters:
     bool verbose    : if True, running the method will print out detailed information
         default     : verbose = True
-    bool plot       : if True, plots local spectral function and self-energy at omega = 0 (not including the Hartree-term)
+    bool plot       : if True, plots local spectral function
         default     : plot = True
     """
     
@@ -74,7 +73,7 @@ class tpsc_solver:
         
         # get dispersion relation
         if eps_k == None:
-            # run with default values
+            # run with default values from dispersion_relation class
             disp = dispersion_relation()
             self.eps_k = disp.eps_k
         else:
@@ -127,8 +126,8 @@ class tpsc_solver:
 
         # plot Self-energy
         if self.plot == True:
-            self.plot_spectral_function(w_range=(-10,10))
-            self.plot_Sigma_zero_frequency_lagrange()
+            self.plot_spectral_function()
+            #self.plot_Sigma_zero_frequency_lagrange()
         t5 = time.time()
 
         # End of calculation
@@ -183,7 +182,7 @@ class tpsc_solver:
         
         self.vprint()
         self.vprint("   Calculating Uch...")
-        self.calc_Uch(Uchmax)
+        self.calc_Uch(Uchmax=Uchmax)
 
         # calculate susceptibilities
         self.vprint()
@@ -217,7 +216,10 @@ class tpsc_solver:
 
         Returns
         -------
-        Sets self.Sigma(2)(_dlr)_wk, self.mu2 and self.G2 and plots Sigma
+        Sets    : self.Sigma_dlr_wk,
+                  self.mu2 (WITHOUT Hartree term),
+                  self.mu2_phys (WITH Hartree term),
+                  self.G2
         """
 
         # start calculation
@@ -233,10 +235,11 @@ class tpsc_solver:
         # calculate G2
         self.vprint()
         self.vprint("   Calculate Green's function...")
-        self.calc_G2_from_Sigma()
+        self.G2, self.mu2 = self.calc_G_from_Sigma(Sigma_dlr_wk=self.Sigma2_dlr_wk)
+        self.mu2_phys = self.mu2 + self.U*self.n/2 # add Hartree term
         self.vprint()
         self.vprint("Summary second level approximation:")
-        self.vprint("mu^(2) = " + str(self.mu2))
+        self.vprint("mu^(2) = " + str(self.mu2_phys))
 
     def check_for_self_consistency(self):
         """
@@ -317,6 +320,7 @@ class tpsc_solver:
         Returns
         -------
         double              : k- and Matsubara sum over passed Green's function
+                              target_shape=()
         """
 
         # extract meshes of passed Gf
@@ -354,6 +358,7 @@ class tpsc_solver:
         Returns
         -------
         triqs.gf            : DLRImFreq Green's function
+                              target_shape=()
         """
 
         # extract meshes of passed Gf
@@ -401,44 +406,44 @@ class tpsc_solver:
         # return new gf-object
         return result
 
-    def n_root(self, mu, Sigma=None):
+    def n_root(self, mu, Sigma_dlr_wk=None):
         """
         Calculates the density as a function of mu.
 
         Parameters
         ----------
-        self    : self
-        mu      : chemical potential
-        Sigma   : self-energy (must be MeshDLRImFreq)
-                : if None, calculates non-interacting density
+        self            : self
+        mu              : chemical potential
+        Sigma_dlr_wk    : self-energy (must be MeshDLRImFreq)
+                        : if None, calculates non-interacting density
         """
 
-        if Sigma is not None:
+        if Sigma_dlr_wk is not None:
             # Dyson equation
             g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=self.iw_dlr_mesh))
-            G2 = inverse(g0_dlr_wk_inv - Sigma)
-        elif Sigma == None:
+            G2 = inverse(g0_dlr_wk_inv - Sigma_dlr_wk)
+        elif Sigma_dlr_wk == None:
             # Only non-interacting Green's function
             G2 = lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
         
         # return density
         return self.k_iw_sum(G2) - self.n/2     # n/2 because G2 is Green's function per spin.
     
-    def calc_mu(self, Sigma=None):
+    def calc_mu(self, Sigma_dlr_wk=None):
         """
         Calculates the chemical potential for the given self-energy.
 
         Parameters
         ----------
-        self    : self
-        Sigma   : self-energy (must be MeshDLRImFreq)
-                : if None, Sigma is set to zero
+        self            : self
+        Sigma_dlr_wk    : self-energy (must be MeshDLRImFreq)
+                        : if None, Sigma is set to zero
         """
 
         # find the mu that leads to the correct density
         mu_min = np.min(self.eps_k.data.real)
         mu_max = np.max(self.eps_k.data.real)
-        mu_result = brentq(lambda m: self.n_root(mu=m, Sigma=Sigma), mu_min, mu_max)
+        mu_result = brentq(lambda m: self.n_root(mu=m, Sigma_dlr_wk=Sigma_dlr_wk), mu_min, mu_max)
 
         # return the result
         return mu_result
@@ -474,14 +479,14 @@ class tpsc_solver:
         # return result
         return result
 
-    def get_nonlocal_gf(self, g_w_k):
+    def get_nonlocal_gf(self, g_wk):
         """
         Removes the local part of passed Green's function.
 
         Parameters
         ----------
         self        : self
-        g_iw_k      : Green's function; iw must be on first axis
+        g_wk        : Green's function; iw must be on first axis
 
         Returns
         -------
@@ -489,10 +494,10 @@ class tpsc_solver:
         """
 
         # get local part
-        g_local_w = self.k_sum(g_w_k)
+        g_local_w = self.k_sum(g_wk)
 
         # subtract local part
-        g_nonloc_wk = self.add_local_gf(g_w_k, -1*g_local_w)
+        g_nonloc_wk = self.add_local_gf(g_wk, -1*g_local_w)
 
         # return result
         return g_nonloc_wk
@@ -528,7 +533,7 @@ class tpsc_solver:
             if self.n == 1:
                 self.mu1 = 0.0  # half-filling
             else:
-                self.mu1 = self.calc_mu(Sigma=None)
+                self.mu1 = self.calc_mu(Sigma_dlr_wk=None)
             
             # calculate non-interacting Green's function of the model
             self.g0_dlr_wk = lattice_dyson_g0_wk(mu=self.mu1, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
@@ -712,36 +717,42 @@ class tpsc_solver:
         Sigma2_dlr_wr = fourier_tr_to_wr(Sigma2_dlr_tr)
         self.Sigma2_dlr_wk = fourier_wr_to_wk(Sigma2_dlr_wr)
 
-    def calc_G2_from_Sigma(self):
+    def calc_G_from_Sigma(self, Sigma_dlr_wk):
         """
-        Calculates the second level of approximation of the Green's function from Sigma.
+        Calculates the Green's function given a self-energy.
 
         Requires
         --------
-        calc_Sigma must have been called.
+        Sigma_dlr_wk must be given on a MeshDLRImFreq.
 
         Parameters
         ----------
-        self    : self
+        self            : self
+        Sigma_dlr_wk    : self-energy
 
         Returns
         -------
-        Sets self.G2 (DLR representation),
-             self.mu2 (WITHOUT the Hartree-term!) and self.mu2_phys (WITH the Hartree-term!).
+        G_dlr_wk        : Green's function with given self-energy and correct chemical potential
+        mu2             : chemical potential
         """
         
-        self.mu2 = self.calc_mu(Sigma=self.Sigma2_dlr_wk)
-        self.mu2_phys = self.mu2 + self.U * self.n/2
+        # get mesh
+        mesh = Sigma_dlr_wk.mesh.components[0]
 
-        # calculate G2
-        g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=self.mu2, e_k=self.eps_k, mesh=self.iw_dlr_mesh))
-        self.G2 = inverse(g0_dlr_wk_inv - self.Sigma2_dlr_wk)
+        # calculate mu
+        mu = self.calc_mu(Sigma_dlr_wk=Sigma_dlr_wk)
+
+        # calculate G
+        g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=mesh))
+        G = inverse(g0_dlr_wk_inv - Sigma_dlr_wk)
+
+        # return results
+        return G, mu
     ### SECOND LEVEL OF APPROXIMATION ###
 
 
     ### FUNCTIONS FOR ANALYTIC CONTINUATION AND FITTING ###
-    # with TRIQS-Pade
-    def evaluate_G_real_freq(self, G_Matsubara, window=(-100, 100), n_w=1000):
+    def evaluate_G_real_freq(self, G_Matsubara, window=(-10, 10), n_w=1000):
         """
         Analytically continues a Matsubara Green's function G to the real axis via TRIQS' Pade approximation.
 
@@ -773,7 +784,7 @@ class tpsc_solver:
         # return resulg
         return G_omega
 
-    def evaluate_non_int_spectral_function(self, n_iw=128, window=(-100, 100), n_w=1000):
+    def evaluate_non_int_spectral_function(self, n_iw=128, window=(-10, 10), n_w=1000):
         """
         Calculates the local non-interacting spectral function of the model.
 
@@ -806,7 +817,7 @@ class tpsc_solver:
         # return local spectral function
         self.A0_loc = -1.0/np.pi * G0_loc_rw.imag
 
-    def evaluate_spectral_function(self, n_iw=128, window=(-100, 100), n_w=1000):
+    def evaluate_spectral_function(self, n_iw=128, window=(-10, 10), n_w=1000):
         """
         Calculates the local spectral function of the model.
 
@@ -842,79 +853,9 @@ class tpsc_solver:
     
         # return local spectral function
         self.A_loc = -1.0/np.pi * G2_loc_rw.imag
-
-    # with external Pade
-    def evaluate_G_real_freq_pade(self, G_Matsubara):
-        """
-        Analytically continues a Matsubara Green's function G to the real axis via Pade approximation.
-
-        Requires
-        --------
-        G.mesh must be MeshImFreq.
-
-        Parameters
-        ----------
-        self        : self
-        G           : Green's function
-
-        Returns
-        -------
-        Pade-approximation of G on the complex plane (not a gf-object!)
-        """
-
-        # get mesh
-        mesh = G_Matsubara.mesh
-
-        # get Matsubara frequencies (must be imaginary!) and function values
-        z = np.array([w.imag for w in mesh])*1j
-        u = np.squeeze(G_Matsubara.data)
-
-        # perform pade fit
-        G_omega = fit(z,u)
-
-        # return resulg
-        return G_omega
-
-    def evaluate_spectral_function_pade(self):
-        """
-        Calculates the local spectral function of the model.
-
-        Requires
-        --------
-        First and second level approximation must have been calculated.
-
-        Parameters
-        ----------
-        self    : self
-
-        Returns
-        -------
-        Sets self.A_loc_alt.
-        """
-
-        # get local Green's function
-        G2_loc_dlr_w = self.k_sum(self.G2)
-
-        # transform to ImFreq mesh
-        G2_loc_dlr = make_gf_dlr(G2_loc_dlr_w)
-        G2_loc_w = make_gf_imfreq(G2_loc_dlr, n_iw=128)
-
-        # analytically continue
-        G2_loc_rw = self.evaluate_G_real_freq_pade(G2_loc_w)
-
-        # get local spectral function
-        def A_loc(omega):
-            """
-            Turns the pade-object into a vectorized function.
-            omega must be an array of real frequencies.
-            """
-            return -1.0/np.pi * np.squeeze(np.array(G2_loc_rw(omega + 1e-8*1j)).imag)
-    
-        # return local spectral function
-        self.A_loc_alt = A_loc
     ### FUNCTIONS FOR ANALYTIC CONTINUATION AND FITTING ###
 
-
+    ###### UNDER CONSTRUCTION ######
     ### METHODS FOR EXTRACTING G(k) AT OMEGA = 0 ###
     def evaluate_G_imfreq_range(self, G, n_max=30):
         """
@@ -1012,7 +953,7 @@ class tpsc_solver:
         # return results
         return kx, ky, G_0_k
     
-    def evaluate_G_k_zero_freq_TRIQS_pade(self, G, n_k=64, window=(-100, 100), n_w=1000):
+    def evaluate_G_k_zero_freq_TRIQS_pade(self, G, n_k=64, window=(-10, 10), n_w=1000):
         """
         Evaluates an imaginary frequency and k-dependent Green's function at omega = 0 via a Pade fit as a function of k.
 
@@ -1089,7 +1030,7 @@ class tpsc_solver:
         plt.colorbar()
         plt.title(r"imaginary part, extrapolation of self energy at $\omega_n \to 0$")
     
-    def plot_Sigma_zero_frequency_pade(self, n_k=64, window=(-100, 100), n_w=1000):
+    def plot_Sigma_zero_frequency_pade(self, n_k=64, window=(-10, 10), n_w=1000):
         """
         Plots the k-dependence the second-level approximation of the self-energy at omega = 0.0 via a Pade fit.
 
@@ -1128,8 +1069,7 @@ class tpsc_solver:
         plt.colorbar()
         plt.title(r"imaginary part, extrapolation of self energy at $\omega_n \to 0$")
     
-    # with TRIQS-Pade
-    def plot_spectral_function(self, w_range=(-100,100)):
+    def plot_spectral_function(self, w_range=(-10,10)):
         """
         Plots the local spectral function of the model.
 
@@ -1157,38 +1097,6 @@ class tpsc_solver:
         plt.ylabel('$A_{loc}(\\omega)$');
         plt.title('Local Spectral Function');
         plt.gca().get_legend().remove();
-    
-    # with external Pade
-    def plot_spectral_function_pade(self, w_range=np.linspace(-10,10,1000)):
-        """
-        Plots the local spectral function of the model.
-
-        Requires
-        --------
-        First and second level approximation must have been calculated.
-
-        Parameters
-        ----------
-        self    : self
-        w_range : real frequency array
-
-        Returns
-        -------
-        Plot of local spectral function evaluated on w_range.
-        """
-
-        # get local spectral function
-        self.evaluate_spectral_function_pade()
-
-        # get correct sign (A_loc must be positive)
-        spectral_func = self.A_loc_alt(w_range)
-
-        # plot
-        plt.figure()
-        plt.plot(w_range, spectral_func)
-        plt.xlabel('$\\omega$');
-        plt.ylabel('$A_{loc}(\\omega)$');
-        plt.title('Local Spectral Function');
     ### FUNCTIONS FOR PLOTTING ###
 ### TPSC SOLVER CLASS ###
 
@@ -1352,47 +1260,3 @@ class dispersion_relation:
         plt.ylabel('$D(\\epsilon)$')
         plt.title('Non-Interacting Density of States')
 ### DISPERSION RLEATION CLASS ###
-
-
-
-### PADE APPROXIMANT CLASS ###
-# from: https://github.com/bennosski/pade.git
-class pade:
-    def __init__(self, a, zs, us):
-        self.a  = a
-        self.zs = zs
-        self.us = us
-                
-    def __call__(self, z):
-        try:
-            return [self.__call__(x) for x in z]
-        except TypeError:
-            An1 = 0.0
-            An  = self.a[0]
-            Bn1 = 1.0
-            Bn  = 1.0
-
-            for n,zn in enumerate(self.zs[:-1]):    
-                An1, An = An, An + (z-zn)*self.a[n+1]*An1
-                Bn1, Bn = Bn, Bn + (z-zn)*self.a[n+1]*Bn1
-
-            return An/Bn
-        
-def fit(zs, us, verbose=False):
-    '''
-    Computes the coefficients for the continued fraction representation of the Pade approximant
-
-    - zs : the complex points and which the function is defined
-    - us : the values of the complex function at the points zs
-    - verbose : prints cache info
-    '''
-    
-    @lru_cache(maxsize=None)
-    def g(p, n):
-        if p==0: return us[n]
-        return (g(p-1, p-1) - g(p-1, n))/((zs[n]-zs[p-1])*g(p-1, n))
-
-    if verbose: print(g.cache_info())
-    
-    return pade([g(i,i) for i in range(len(zs))], zs, us)
-### PADE APPROXIMANT CLASS ###
