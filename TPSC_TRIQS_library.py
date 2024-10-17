@@ -293,6 +293,7 @@ class tpsc_solver:
         -------
         Green's Function object containing the RPA-like charge (U < 0) or spin (U > 0) susceptibility for the given vertex
         Mesh is the same as the mesh of the non-interacting susceptibility.
+        target_shape is the same as self.chi0_dlr_wk, which normally is (1,1,1,1)
         """
 
         # initialize RPA susceptibility
@@ -331,15 +332,12 @@ class tpsc_solver:
 
         # for each frequency, sum over k (second axis!) and normalize by number of k-points
         g_dlr_w.data[:] = np.sum(np.squeeze(g_dlr_wk.data), axis=1) / len(kmesh)
-    
-        # convert to dlr mesh for density call (DLRImFreq does not support density!)
-        g_dlr = make_gf_dlr(g_dlr_w)
         
-        # return result based on statistic
+        # return result based on statistic (density works for normal and DLR meshes)
         if wmesh.statistic == 'Boson':
-            return -g_dlr.density().real    # bosonic time order does not introduce the necessary -sign
+            return -g_dlr_w.density().real    # bosonic time order does not introduce the necessary -sign
         elif wmesh.statistic == 'Fermion':
-            return g_dlr.density().real
+            return g_dlr_w.density().real
         
     def k_sum(G_wkself, g_dlr_wk):
         """
@@ -357,7 +355,7 @@ class tpsc_solver:
 
         Returns
         -------
-        triqs.gf            : DLRImFreq Green's function
+        triqs.gf            : Green's function with same first mesh as input
                               target_shape=()
         """
 
@@ -414,13 +412,15 @@ class tpsc_solver:
         ----------
         self            : self
         mu              : chemical potential
-        Sigma_dlr_wk    : self-energy (must be MeshDLRImFreq)
+        Sigma_dlr_wk    : self-energy (iw_mesh must be first axis)
                         : if None, calculates non-interacting density
         """
 
+        iw_mesh = Sigma_dlr_wk.mesh.components[0]
+
         if Sigma_dlr_wk is not None:
             # Dyson equation
-            g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=self.iw_dlr_mesh))
+            g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=iw_mesh))
             G2 = inverse(g0_dlr_wk_inv - Sigma_dlr_wk)
         elif Sigma_dlr_wk == None:
             # Only non-interacting Green's function
@@ -436,7 +436,7 @@ class tpsc_solver:
         Parameters
         ----------
         self            : self
-        Sigma_dlr_wk    : self-energy (must be MeshDLRImFreq)
+        Sigma_dlr_wk    : self-energy (iw_mesh must be first axis)
                         : if None, Sigma is set to zero
         """
 
