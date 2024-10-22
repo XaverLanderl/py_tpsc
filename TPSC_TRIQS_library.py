@@ -293,7 +293,7 @@ class tpsc_solver:
         -------
         Green's Function object containing the RPA-like charge (U < 0) or spin (U > 0) susceptibility for the given vertex
         Mesh is the same as the mesh of the non-interacting susceptibility.
-        target_shape is the same as self.chi0_dlr_wk, which normally is (1,1,1,1)
+        target_shape is the same as self.chi0_dlr_wk, which normally is (1,1)
         """
 
         # initialize RPA susceptibility
@@ -304,7 +304,44 @@ class tpsc_solver:
 
         # return results
         return chi_dlr_wk
+        
+    def k_sum(self, g_dlr_wk):
+        """
+        Calculates the k-sum over the passed Green's function.
+        
+        Requires
+        --------
+        g_dlr_wk must be defined on a MeshDLRImFreq-mesh.
+        K-dependence must be along the second axis.
+        
+        Parameters
+        ----------
+        self                : self
+        triqs.gf g_dlr_wk   : TRIQS Green's function object
 
+        Returns
+        -------
+        triqs.gf            : Green's function with same first mesh as input
+                              target_shape=(1,1)
+        """
+
+        # fourier-transform
+        g_dlr_wr = fourier_wk_to_wr(g_dlr_wk)
+
+        # get meshes
+        iw_dlr_mesh, r_mesh = g_dlr_wr.mesh.components
+        r_0 = r_mesh[0]
+
+        # initialize local Gf
+        g_dlr_w = Gf(mesh=iw_dlr_mesh, target_shape=g_dlr_wk.target_shape)
+        
+        # evaluate at r = 0
+        for freq in iw_dlr_mesh:
+            g_dlr_w[freq] = g_dlr_wr[freq,r_0]
+        
+        # return result
+        return g_dlr_w
+    
     def k_iw_sum(self, g_dlr_wk):
         """
         Calculates the k- and Matsubara sum over the passed Green's function.
@@ -325,64 +362,27 @@ class tpsc_solver:
         """
 
         # extract meshes of passed Gf
-        wmesh, kmesh = g_dlr_wk.mesh.components
+        iw_dlr_mesh = g_dlr_wk.mesh.components[0]
 
         # define auxiliary quantity not dependent on k
-        g_dlr_w = Gf(mesh=wmesh, target_shape=())
-
-        # for each frequency, sum over k (second axis!) and normalize by number of k-points
-        g_dlr_w.data[:] = np.sum(np.squeeze(g_dlr_wk.data), axis=1) / len(kmesh)
+        g_dlr_w = self.k_sum(g_dlr_wk=g_dlr_wk)
         
         # return result based on statistic (density works for normal and DLR meshes)
-        if wmesh.statistic == 'Boson':
-            return -g_dlr_w.density().real    # bosonic time order does not introduce the necessary -sign
-        elif wmesh.statistic == 'Fermion':
-            return g_dlr_w.density().real
+        if iw_dlr_mesh.statistic == 'Boson':
+            result = -density(g_dlr_w).real    # bosonic time order does not introduce the necessary -sign
+        elif iw_dlr_mesh.statistic == 'Fermion':
+            result = density(g_dlr_w).real
         
-    def k_sum(G_wkself, g_dlr_wk):
+        return float(result)
+            
+    def change_target_shape(self, g_dlr_wk):
         """
-        Calculates the k-sum over the passed Green's function.
-        
-        Requires
-        --------
-        g_dlr_wk must be defined on a MeshDLRImFreq-mesh.
-        K-dependence must be along the second axis.
-        
-        Parameters
-        ----------
-        self                : self
-        triqs.gf g_dlr_wk   : TRIQS Green's function object
-
-        Returns
-        -------
-        triqs.gf            : Green's function with same first mesh as input
-                              target_shape=()
-        """
-
-        # extract meshes of passed Gf
-        wmesh, kmesh = g_dlr_wk.mesh.components
-
-        # define Green's function not dependent on k
-        g_dlr_w = Gf(mesh=wmesh, target_shape=())
-
-        # for each frequency, sum over k (second axis!) and normalize by number of k-points
-        g_dlr_w.data[:] = np.sum(np.squeeze(g_dlr_wk.data), axis=1) / len(kmesh)
-
-        # return the result
-        return g_dlr_w
-    
-    def change_target_shape(self, g):
-        """
-        Changes target_shape between (1,1) and (1,1,1,1), as both are used by various functions.
-
-        Requires
-        --------
-        g must be a Green's function.
+        Changes target_shape from (1,1,1,1) to (1,1) if necessary, does nothing otherwise.
 
         Parameters
         ----------
-        self    : self
-        g       : TRIQS Green's function object
+        self        : self
+        g_dlr_wk    : TRIQS Green's function object
 
         Returns
         -------
@@ -390,16 +390,15 @@ class tpsc_solver:
         """ 
 
         # extract mesh and target_shape
-        mesh = g.mesh
-        target_shape = g.target_shape
+        mesh = g_dlr_wk.mesh
+        target_shape = g_dlr_wk.target_shape
         
         # change target_shape and transfer data
         if target_shape == (1,1,1,1):
             result = Gf(mesh=mesh, target_shape=(1,1))
-            result.data[:,:,:,:] = g.data[:,:,:,:,0,0]
-        elif target_shape == (1,1):
-            result = Gf(mesh=mesh, target_shape=(1,1,1,1))
-            result.data[:,:,:,:,:,:] = g.data[:,:,:,:,None,None]
+            result.data[:,:,:,:] = g_dlr_wk.data[:,:,:,:,0,0]
+        else:
+            result = g_dlr_wk
             
         # return new gf-object
         return result
@@ -520,7 +519,7 @@ class tpsc_solver:
                         self.mu1,         non-interacting chemical potential
                         self.g0_dlr_wk,   non-interacting Green's function with correct chemical potential
                     always:
-                    self.chi0_dlr_wk, target_shape=(1,1,1,1)
+                    self.chi0_dlr_wk, target_shape=(1,1)
         """
 
         # If no g0 for the bubble has been passed, calculate from scratch
@@ -544,7 +543,10 @@ class tpsc_solver:
             self.g0_dlr_wk = self.g0_bubble
 
         # calculate the non-interacting susceptibility of the model
-        self.chi0_dlr_wk = 2*imtime_bubble_chi0_wk(self.g0_dlr_wk, nw=2, verbose=False)
+        chi0_dlr_wk = 2*imtime_bubble_chi0_wk(self.g0_dlr_wk, nw=2, verbose=False)
+
+        # change target_shape (we need (1,1))
+        self.chi0_dlr_wk = self.change_target_shape(g_dlr_wk=chi0_dlr_wk)
 
     def Usp_root(self, Usp):
         """
@@ -698,12 +700,9 @@ class tpsc_solver:
 
         # get V(-t,-r)
         V = V.conjugate()
-        V = chi_wr_from_chi_wk(V)
-        V = chi_tr_from_chi_wr(V)
+        V = fourier_wk_to_wr(V)
+        V = fourier_wr_to_tr(V)
         V = V.conjugate()
-
-        # change V to correct target shape
-        V = self.change_target_shape(V)
 
         # get G(t,r)
         g0_dlr_wr = fourier_wk_to_wr(self.g0_dlr_wk)
