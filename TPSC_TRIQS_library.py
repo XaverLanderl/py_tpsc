@@ -447,59 +447,68 @@ class tpsc_solver:
         # return the result
         return mu_result
     
-    def add_local_gf(self, g_w_k, g_local_w):
+    def add_k_ind_gf(self, g_dlr_wk, g_dlr_w):
         """
-        Adds a local (k-independent) Green's function to a k-dependent Green's function.
+        Adds a k-independent Green's function to a k-dependent Green's function.
 
         Parameters
         ----------
         self        : self
-        g_iw_k      : k-dependent Green's function; iw must be on first axis.
-        g_local_w   : k-independent Green's function to be subtracted
+        g_dlr_wk    : k-dependent Green's function; iw must be on first axis.
+        g_dlr_w     : k-independent Green's function to be subtracted
                     : must both have the same Matsubara-mesh
+                    : must both have the same target_shape
 
         Returns
         -------
-        result      : TRIQS Green's function object of target_shape=(1,1)
+        result      : TRIQS Green's function object of same mesh and target_shape as g_dlr_wk
         """
 
-        # extract data of k-dependent gf
-        g_w_k_data = np.squeeze(g_w_k.data)
-
-        # extract data of local gf; reshape for broadcasting reasons
-        g_local_w_data = np.squeeze(g_local_w.data).reshape(-1,1)
+        # check inputs
+        if not g_dlr_wk.target_shape == g_dlr_w.target_shape:
+            raise AssertionError('Input Green\'s functions must have the same target_shape!')
+        if not g_dlr_wk.mesh.components[0] == g_dlr_w.mesh:
+            raise AssertionError('Input Green\'s functions must have the same imfreq_mesh!')
 
         # initialize result
-        result = Gf(mesh = g_w_k.mesh, target_shape=(1,1))
+        result = Gf(mesh = g_dlr_wk.mesh, target_shape=g_dlr_wk.target_shape)
         
         # feed values (utilize numpy broadcasting!)
-        result.data[:,:,0,0] = g_w_k_data + g_local_w_data
+        result.data[:] = g_dlr_wk.data[:] + g_dlr_w.data[:,None]
 
         # return result
         return result
 
-    def get_nonlocal_gf(self, g_wk):
+    def get_nonlocal_gf(self, g_dlr_wk):
         """
         Removes the local part of passed Green's function.
 
         Parameters
         ----------
         self        : self
-        g_wk        : Green's function; iw must be on first axis
+        g_dlr_wk    : Green's function; iw must be on first axis
 
         Returns
         -------
-        g_nonloc_wk : non-local part of passed Green's function, same target_shape
+        result      : TRIQS Green's function object of same mesh and target_shape as g_dlr_wk
         """
 
-        # get local part
-        g_local_w = self.k_sum(g_wk)
+        # check input
+        wmesh = g_dlr_wk.mesh.components[0]
+        if not isinstance(wmesh, MeshImFreq) or isinstance(wmesh, MeshDLRImFreq):
+            raise TypeError('The first axis must be MeshImFreq or MeshDLRImFreq!')
+        
+        # get local Gf
+        g_dlr_w = self.k_sum(g_dlr_wk)
+        
+        # initialize result
+        result = g_dlr_wk.copy()
 
-        # subtract local part
-        g_nonloc_wk = self.add_local_gf(g_wk, -1*g_local_w)
+        # subtract local part from g_dlr_wr
+        result.data[:] = g_dlr_wk.data[:] - g_dlr_w.data[:,None]
 
         # return result
-        return g_nonloc_wk
+        return result
     ### HELPER FUNCTIONS ###
 
 
