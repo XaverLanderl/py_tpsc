@@ -361,9 +361,6 @@ class tpsc_solver:
                               target_shape=()
         """
 
-        # extract meshes of passed Gf
-        iw_dlr_mesh = g_dlr_wk.mesh.components[0]
-
         # define auxiliary quantity not dependent on k
         g_dlr_w = self.k_sum(g_dlr_wk=g_dlr_wk)
         
@@ -415,7 +412,10 @@ class tpsc_solver:
                         : if None, calculates non-interacting density
         """
 
-        iw_mesh = Sigma_dlr_wk.mesh.components[0]
+        if Sigma_dlr_wk is not None:
+            iw_mesh = Sigma_dlr_wk.mesh.components[0]
+        else:
+            iw_mesh = self.iw_dlr_mesh
 
         if Sigma_dlr_wk is not None:
             # Dyson equation
@@ -495,7 +495,7 @@ class tpsc_solver:
 
         # check input
         wmesh = g_dlr_wk.mesh.components[0]
-        if not isinstance(wmesh, MeshImFreq) or isinstance(wmesh, MeshDLRImFreq):
+        if not (isinstance(wmesh, MeshImFreq) or isinstance(wmesh, MeshDLRImFreq)):
             raise TypeError('The first axis must be MeshImFreq or MeshDLRImFreq!')
         
         # get local Gf
