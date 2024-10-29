@@ -7,12 +7,9 @@ from triqs_tprf.lattice import *
 from triqs_tprf.lattice_utils import imtime_bubble_chi0_wk
 from triqs.plot.mpl_interface import oplot, plt
 import triqs.utility.mpi as mpi
-from functools import lru_cache
 import numpy as np
-from numpy.polynomial import Polynomial
 from matplotlib import pyplot as plt
 from scipy.optimize import brentq
-from scipy import integrate
 from h5 import HDFArchive
 import time
 ### IMPORTS ###
@@ -318,6 +315,7 @@ class tpsc_solver:
         ----------
         self                : self
         triqs.gf g_dlr_wk   : TRIQS Green's function object
+                            : must be defined on MeshProduct(iw_(dlr_)mesh, k_mesh)
 
         Returns
         -------
@@ -360,6 +358,9 @@ class tpsc_solver:
         double              : k- and Matsubara sum over passed Green's function
                               target_shape=()
         """
+
+        # get mesh
+        iw_dlr_mesh = g_dlr_wk.mesh.components[0]
 
         # define auxiliary quantity not dependent on k
         g_dlr_w = self.k_sum(g_dlr_wk=g_dlr_wk)
