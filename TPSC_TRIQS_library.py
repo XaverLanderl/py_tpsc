@@ -117,24 +117,22 @@ class tpsc_solver:
         self.calc_second_level_approximation()
         t3 = time.time()
 
-        # check self consisteny
-        self.check_for_self_consistency()
-        t4 = time.time()
-
         # plot Self-energy
         if self.plot == True:
-            self.plot_spectral_function()
+            self.plot_spectral_function(n_iw=1025)
             #self.plot_Sigma_zero_frequency_lagrange()
-        t5 = time.time()
+        t4 = time.time()
+
+        # check self consisteny
+        self.check_for_self_consistency()
 
         # End of calculation
         self.vprint()
         self.vprint("------------------------------------------------------------------------------------------")
         self.vprint(f'Runtime of first level approximation = {(t2 - t1):.2f}s.')
         self.vprint(f'Runtime of second level approximation = {(t3 - t2):.2f}s.')
-        self.vprint(f'Runtime of self-consistency check = {(t4 - t3):.2f}s.')
         if self.plot == True:
-            self.vprint(f'Runtime of plots = {(t5 - t4):.2f}s.')
+            self.vprint(f'Runtime of plots = {(t4 - t3):.2f}s.')
         self.vprint("DONE!")
 
     def calc_first_level_approx(self, Uchmax=1000.):
@@ -259,9 +257,30 @@ class tpsc_solver:
         # check that the sum rule is fulfilled
         self.vprint()
         self.vprint("------------------------------------------------------------------------------------------")
-        self.vprint('Doing self-consistency check...')
+        self.vprint('Doing self-consistency check of first-level approximation...')
         self.check_sum_rule = self.k_iw_sum(self.chi_sp + self.chi_ch) - (2*self.n - self.n**2)
         self.vprint(f'The sum rule is fulfilled with an accuracy of {abs(self.check_sum_rule)}.')
+
+        self.vprint("------------------------------------------------------------------------------------------")
+        self.vprint('Doing self-consistency check of second-level approximation...')
+        # add Hartree term to self-energy
+        Sigma_dlr_wk = self.Sigma2_dlr_wk.copy()
+        Sigma_dlr_wk.data[:] += self.U*self.n/2
+
+        # get products Sigma*G
+        F1_dlr_wk = Sigma_dlr_wk * self.g0_dlr_wk
+        F2_dlr_wk = Sigma_dlr_wk * self.G2
+
+        # get traces
+        trace_F1 = self.k_iw_sum(F1_dlr_wk) / self.U
+        trace_F2 = self.k_iw_sum(F2_dlr_wk) / self.U
+
+        # get the relative difference
+        rel_diff = np.abs((trace_F1 - trace_F2) / trace_F1) * 100
+
+        # check consistency
+        self.vprint('Sum_k {Sigma^(2)(k) * G^(1)(k)} - <n_up * n_down> = ' + str(np.abs(trace_F1 - self.docc)))
+        self.vprint(f'Relative difference of traces = {rel_diff:.2f}%')
     ### METHODS TO RUN THE CALCULATION ###
 
 
@@ -535,20 +554,25 @@ class tpsc_solver:
         # If no g0 for the bubble has been passed, calculate from scratch
         if self.g0_bubble == None:
 
+            # print out information
+            self.vprint('   Calculating bubble from scratch!')
+
             # calculate imaginary time mesh
             self.iw_dlr_mesh = MeshDLRImFreq(beta=self.beta, statistic='Fermion', w_max=self.w_max, eps=self.eps)
 
             # get mu from n (need for G0 and bubble)
-            if self.n == 1:
-                self.mu1 = 0.0  # half-filling
-            else:
-                self.mu1 = self.calc_mu(Sigma_dlr_wk=None)
+            self.mu1 = self.calc_mu(Sigma_dlr_wk=None)
             
             # calculate non-interacting Green's function of the model
             self.g0_dlr_wk = lattice_dyson_g0_wk(mu=self.mu1, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
         
         # otherwise, use passed g0
         else:
+
+            # print out information
+            self.vprint('   Calculating bubble with passed G0.')
+
+            # set G0 from input
             self.iw_dlr_mesh = self.g0_bubble.mesh.components[0]
             self.g0_dlr_wk = self.g0_bubble
 
@@ -979,7 +1003,7 @@ class tpsc_solver:
         np.arrays containing kx, ky, and fitted data of G 
         """
 
-         # define k-grid
+        # define k-grid
         kx = np.linspace(0.0, 2*np.pi, n_k)
         ky = np.linspace(0.0, 2*np.pi, n_k)
 
@@ -1001,9 +1025,9 @@ class tpsc_solver:
 
 
     ### FUNCTIONS FOR PLOTTING ###
-    def plot_Sigma_zero_frequency_lagrange(self, n_k=64, n_max=10):
+    def plot_Sigma_wk(self, iwn=0, n_k=64):
         """
-        Plots the k-dependence the second-level approximation of the self-energy at omega = 0.0 via a Lagrange polynomial fit.
+        Plots the k-dependence of the self-energy at omega = iwn
 
         Requires
         --------
@@ -1012,32 +1036,43 @@ class tpsc_solver:
         Parameters
         ----------
         self        : self
+        iwn         : Matsubara frequency index (!) at which to evaluate
         n_k         : number of k-points per dimension
-        n_max       : maximum Matsubara frequency index; determines how much data there is for the fit
-
-        Returns
-        -------
-        Plots self.Sigma at omega = 0.0.
         """
 
-        # interpolate k-dependence
-        kx, ky, Sigma_0_k = self.evaluate_G_k_zero_freq_lagrange(self.Sigma2_wk, n_k=n_k, n_max=n_max)
+        # Get Sigma at iwn
+        Sigma_dlr_k = make_gf_dlr(self.Sigma2_dlr_wk)
+        Sigma_wk = make_gf_imfreq(Sigma_dlr_k, n_iw=iwn+10)
+
+        Sigma_k = Sigma_wk(iwn, all)
+
+         # define k-grid
+        kx = np.linspace(0.0, 2*np.pi, n_k)
+        ky = np.linspace(0.0, 2*np.pi, n_k)
+
+        # define result array
+        S_iwn_k = np.zeros(shape=(n_k, n_k), dtype='complex')
+
+        # go over all k-points
+        for indx, x in enumerate(kx):
+            for indy, y in enumerate(ky):
+                S_iwn_k[indx, indy] = Sigma_k((x,y,0))
 
         # plot real part
         plt.figure()
-        plt.contourf(kx, ky, Sigma_0_k.real, levels=25, cmap='magma')
+        plt.contourf(kx, ky, S_iwn_k.real, levels=25, cmap='magma')
         plt.xlabel(r"$k_x$")
         plt.ylabel(r"$k_y$")
         plt.colorbar()
-        plt.title(r"real part, extrapolation of self energy at $\omega_n \to 0$")
+        plt.title("real part of self energy at $\\omega_{n} = $" + str((2*iwn+1)*np.pi/self.beta))
 
         # plot imaginary part
         plt.figure()
-        plt.contourf(kx, ky, Sigma_0_k.imag, levels=25, cmap='magma')
+        plt.contourf(kx, ky, S_iwn_k.imag, levels=25, cmap='magma')
         plt.xlabel(r"$k_x$")
         plt.ylabel(r"$k_y$")
         plt.colorbar()
-        plt.title(r"imaginary part, extrapolation of self energy at $\omega_n \to 0$")
+        plt.title("imaginary part of self energy at $\\omega_{n} = $" + str((2*iwn+1)*np.pi/self.beta))
     
     def plot_Sigma_zero_frequency_pade(self, n_k=64, window=(-10, 10), n_w=1000):
         """
@@ -1078,7 +1113,7 @@ class tpsc_solver:
         plt.colorbar()
         plt.title(r"imaginary part, extrapolation of self energy at $\omega_n \to 0$")
     
-    def plot_spectral_function(self, w_range=(-10,10)):
+    def plot_spectral_function(self, n_iw=128, n_w=1000, w_range=(-10,10)):
         """
         Plots the local spectral function of the model.
 
@@ -1089,6 +1124,8 @@ class tpsc_solver:
         Parameters
         ----------
         self    : self
+        n_iw    : number of Matsubara Frequencies
+        n_w     : number of real frequencies on which to plot
         w_range : frequency range on which to plot
 
         Returns
@@ -1097,7 +1134,7 @@ class tpsc_solver:
         """
 
         # get local spectral function
-        self.evaluate_spectral_function()
+        self.evaluate_spectral_function(n_iw=n_iw, n_w=n_w)
         
         # plot
         plt.figure()
