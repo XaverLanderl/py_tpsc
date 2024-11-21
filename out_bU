@@ -1,56 +1,106 @@
 ----- Start! -----
-beta = 1.0, U = 1
-beta = 1.0, U = 2
-beta = 1.0, U = 3
-beta = 1.0, U = 4
-beta = 1.0, U = 5
-beta = 3.111111111111111, U = 1
-beta = 3.111111111111111, U = 2
-beta = 3.111111111111111, U = 3
-beta = 3.111111111111111, U = 4
-beta = 3.111111111111111, U = 5
-beta = 5.222222222222222, U = 1
-beta = 5.222222222222222, U = 2
-beta = 5.222222222222222, U = 3
-beta = 5.222222222222222, U = 4
-beta = 5.222222222222222, U = 5
-beta = 7.333333333333334, U = 1
-beta = 7.333333333333334, U = 2
-beta = 7.333333333333334, U = 3
-beta = 7.333333333333334, U = 4
-beta = 7.333333333333334, U = 5
-beta = 9.444444444444445, U = 1
-beta = 9.444444444444445, U = 2
-beta = 9.444444444444445, U = 3
-beta = 9.444444444444445, U = 4
-beta = 9.444444444444445, U = 5
-beta = 11.555555555555555, U = 1
-beta = 11.555555555555555, U = 2
-beta = 11.555555555555555, U = 3
-beta = 11.555555555555555, U = 4
-beta = 11.555555555555555, U = 5
-beta = 13.666666666666668, U = 1
-beta = 13.666666666666668, U = 2
-beta = 13.666666666666668, U = 3
-beta = 13.666666666666668, U = 4
-beta = 13.666666666666668, U = 5
-beta = 15.777777777777779, U = 1
-beta = 15.777777777777779, U = 2
-beta = 15.777777777777779, U = 3
-beta = 15.777777777777779, U = 4
-beta = 15.777777777777779, U = 5
-beta = 17.88888888888889, U = 1
-beta = 17.88888888888889, U = 2
-beta = 17.88888888888889, U = 3
-beta = 17.88888888888889, U = 4
-beta = 17.88888888888889, U = 5
 beta = 20.0, U = 1
+calculation 1/50
 beta = 20.0, U = 2
+calculation 2/50
 beta = 20.0, U = 3
+calculation 3/50
 beta = 20.0, U = 4
+calculation 4/50
 beta = 20.0, U = 5
+calculation 5/50
+beta = 6.428571428571429, U = 1
+calculation 6/50
+beta = 6.428571428571429, U = 2
+calculation 7/50
+beta = 6.428571428571429, U = 3
+calculation 8/50
+beta = 6.428571428571429, U = 4
+calculation 9/50
+beta = 6.428571428571429, U = 5
+calculation 10/50
+beta = 3.829787234042553, U = 1
+calculation 11/50
+beta = 3.829787234042553, U = 2
+calculation 12/50
+beta = 3.829787234042553, U = 3
+calculation 13/50
+beta = 3.829787234042553, U = 4
+calculation 14/50
+beta = 3.829787234042553, U = 5
+calculation 15/50
+beta = 2.7272727272727275, U = 1
+calculation 16/50
+beta = 2.7272727272727275, U = 2
+calculation 17/50
+beta = 2.7272727272727275, U = 3
+calculation 18/50
+beta = 2.7272727272727275, U = 4
+calculation 19/50
+beta = 2.7272727272727275, U = 5
+calculation 20/50
+beta = 2.1176470588235294, U = 1
+calculation 21/50
+beta = 2.1176470588235294, U = 2
+calculation 22/50
+beta = 2.1176470588235294, U = 3
+calculation 23/50
+beta = 2.1176470588235294, U = 4
+calculation 24/50
+beta = 2.1176470588235294, U = 5
+calculation 25/50
+beta = 1.7307692307692306, U = 1
+calculation 26/50
+beta = 1.7307692307692306, U = 2
+calculation 27/50
+beta = 1.7307692307692306, U = 3
+calculation 28/50
+beta = 1.7307692307692306, U = 4
+calculation 29/50
+beta = 1.7307692307692306, U = 5
+calculation 30/50
+beta = 1.4634146341463414, U = 1
+calculation 31/50
+beta = 1.4634146341463414, U = 2
+calculation 32/50
+beta = 1.4634146341463414, U = 3
+calculation 33/50
+beta = 1.4634146341463414, U = 4
+calculation 34/50
+beta = 1.4634146341463414, U = 5
+calculation 35/50
+beta = 1.2676056338028168, U = 1
+calculation 36/50
+beta = 1.2676056338028168, U = 2
+calculation 37/50
+beta = 1.2676056338028168, U = 3
+calculation 38/50
+beta = 1.2676056338028168, U = 4
+calculation 39/50
+beta = 1.2676056338028168, U = 5
+calculation 40/50
+beta = 1.1180124223602483, U = 1
+calculation 41/50
+beta = 1.1180124223602483, U = 2
+calculation 42/50
+beta = 1.1180124223602483, U = 3
+calculation 43/50
+beta = 1.1180124223602483, U = 4
+calculation 44/50
+beta = 1.1180124223602483, U = 5
+calculation 45/50
+beta = 1.0, U = 1
+calculation 46/50
+beta = 1.0, U = 2
+calculation 47/50
+beta = 1.0, U = 3
+calculation 48/50
+beta = 1.0, U = 4
+calculation 49/50
+beta = 1.0, U = 5
+calculation 50/50
 ----- Done! -----
-Runtime = 796.0341498851776s
+Runtime = 6.1764025568962095min
 ----- Saving! -----
 ----- Saved! -----
 ----- All Done! -----

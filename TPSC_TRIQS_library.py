@@ -57,7 +57,7 @@ class tpsc_solver:
     """
     
     ### CLASS CONSTRUCTOR ###
-    def __init__(self, n=1., U=2., beta=2.5, eps_k=None, docc=None, g0_bubble=None, w_max=10.0, eps=1e-14, Usp_tol=1e-12, Uch_tol=None, verbose=True, plot=True):
+    def __init__(self, n=1., U=2., beta=2.5, eps_k=None, docc=None, w_max=10.0, eps=1e-14, Usp_tol=1e-12, Uch_tol=None, verbose=True, plot=True):
         """
         Initialize a tpsc_solver object.
         """
@@ -82,12 +82,6 @@ class tpsc_solver:
         else:
             self.use_tpsc_ansatz = False
             self.docc = docc
-
-        # check whether a g0 for the bubble has been passed
-        if g0_bubble == None:
-            self.g0_bubble = None
-        else:
-            self.g0_bubble = g0_bubble
 
         # set calculation parameters
         self.w_max = w_max
@@ -123,7 +117,7 @@ class tpsc_solver:
             #self.plot_Sigma_zero_frequency_lagrange()
         t4 = time.time()
 
-        # check self consisteny
+        # do self-consistency check
         self.check_for_self_consistency()
 
         # End of calculation
@@ -182,8 +176,8 @@ class tpsc_solver:
         # calculate susceptibilities
         self.vprint()
         self.vprint("   Calculate TPSC-spin- and charge-susceptibilities...")
-        self.chi_sp = self.solve_rpa(self.Usp)
-        self.chi_ch = self.solve_rpa(-self.Uch)
+        self.chi1_sp_dlr_wk = self.solve_rpa(self.Usp)
+        self.chi1_ch_dlr_wk = self.solve_rpa(-self.Uch)
         
         # calculate double occupation
         if self.use_tpsc_ansatz == True:
@@ -230,8 +224,8 @@ class tpsc_solver:
         # calculate G2
         self.vprint()
         self.vprint("   Calculate Green's function...")
-        self.G2, self.mu2 = self.calc_G_from_Sigma(Sigma_dlr_wk=self.Sigma2_dlr_wk)
-        self.mu2_phys = self.mu2 + self.U*self.n/2 # add Hartree term
+        self.g2_dlr_wk, self.mu2 = self.calc_G_from_Sigma(Sigma_dlr_wk=self.Sigma2_dlr_wk)
+        self.mu2_phys = self.mu2 + self.U*self.n/2          # add Hartree term
         self.vprint()
         self.vprint("Summary second level approximation:")
         self.vprint("mu^(2) = " + str(self.mu2_phys))
@@ -258,7 +252,7 @@ class tpsc_solver:
         self.vprint()
         self.vprint("------------------------------------------------------------------------------------------")
         self.vprint('Doing self-consistency check of first-level approximation...')
-        self.check_sum_rule = self.k_iw_sum(self.chi_sp + self.chi_ch) - (2*self.n - self.n**2)
+        self.check_sum_rule = self.k_iw_sum(self.chi1_sp_dlr_wk + self.chi1_ch_dlr_wk) - (2*self.n - self.n**2)
         self.vprint(f'The sum rule is fulfilled with an accuracy of {abs(self.check_sum_rule)}.')
 
         self.vprint("------------------------------------------------------------------------------------------")
@@ -269,7 +263,7 @@ class tpsc_solver:
 
         # get products Sigma*G
         F1_dlr_wk = Sigma_dlr_wk * self.g0_dlr_wk
-        F2_dlr_wk = Sigma_dlr_wk * self.G2
+        F2_dlr_wk = Sigma_dlr_wk * self.g2_dlr_wk
 
         # get traces
         trace_F1 = self.k_iw_sum(F1_dlr_wk) / self.U
@@ -419,6 +413,72 @@ class tpsc_solver:
             
         # return new gf-object
         return result
+    
+    # custon fourier transforms
+    def fourier_wk_to_tr(self, g_wk):
+        """
+        Fourier-transforms a Green's function from wk to tr representation.
+
+        Parameters
+        ----------
+        self    :   self
+        g_wk    :   Green's function, MeshProduct(ImFreqDLRMesh, BZMesh)
+
+        Returns
+        -------
+        g_tr    :   Green's function, MeshProduct(ImTimeDLRMesh, CycLat)
+        """
+
+        # fourier transform
+        g_wr = fourier_wk_to_wr(g_wk)
+        g_tr = fourier_wr_to_tr(g_wr)
+
+        # return result
+        return g_tr
+
+    def fourier_wk_to_mtr(self, g_wk):
+        """
+        Fourier-transforms a Green's function from wk to (-t,-r) representation.
+
+        Parameters
+        ----------
+        self    :   self
+        g_wk    :   Green's function, MeshProduct(ImFreqDLRMesh, BZMesh)
+
+        Returns
+        -------
+        g_mtr   :   Green's function, MeshProduct(ImTimeDLRMesh, CycLat)
+        """
+
+        # fourier transform
+        g_wk_conj = g_wk.conjugate()
+        g_wr_conj = fourier_wk_to_wr(g_wk_conj)
+        g_tr_conj = fourier_wr_to_tr(g_wr_conj)
+        g_mtr = g_tr_conj.conjugate()
+
+        # return result
+        return g_mtr
+
+    def fourier_tr_to_wk(self, g_tr):
+        """
+        Fourier-transforms a Green's function from tr to wk representation.
+
+        Parameters
+        ----------
+        self    :   self
+        g_wk    :   Green's function, MeshProduct(ImTimeDLRMesh, CycLat)
+
+        Returns
+        -------
+        g_tr    :   Green's function, MeshProduct(ImFreqDLRMesh, BZMesh)
+        """
+
+        # fourier transform
+        g_wr = fourier_tr_to_wr(g_tr)
+        g_wk = fourier_wr_to_wk(g_wr)
+
+        # return result
+        return g_wk
 
     def n_root(self, mu, Sigma_dlr_wk=None):
         """
@@ -551,36 +611,50 @@ class tpsc_solver:
                     self.chi0_dlr_wk, target_shape=(1,1)
         """
 
-        # If no g0 for the bubble has been passed, calculate from scratch
-        if self.g0_bubble == None:
+        # calculate imaginary time mesh
+        self.iw_dlr_mesh = MeshDLRImFreq(beta=self.beta, statistic='Fermion', w_max=self.w_max, eps=self.eps)
 
-            # print out information
-            self.vprint('   Calculating bubble from scratch!')
-
-            # calculate imaginary time mesh
-            self.iw_dlr_mesh = MeshDLRImFreq(beta=self.beta, statistic='Fermion', w_max=self.w_max, eps=self.eps)
-
-            # get mu from n (need for G0 and bubble)
-            self.mu1 = self.calc_mu(Sigma_dlr_wk=None)
-            
-            # calculate non-interacting Green's function of the model
-            self.g0_dlr_wk = lattice_dyson_g0_wk(mu=self.mu1, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
+        # get mu from n (need for G0 and bubble)
+        self.mu1 = self.calc_mu(Sigma_dlr_wk=None)
         
-        # otherwise, use passed g0
-        else:
-
-            # print out information
-            self.vprint('   Calculating bubble with passed G0.')
-
-            # set G0 from input
-            self.iw_dlr_mesh = self.g0_bubble.mesh.components[0]
-            self.g0_dlr_wk = self.g0_bubble
+        # calculate non-interacting Green's function of the model
+        self.g0_dlr_wk = lattice_dyson_g0_wk(mu=self.mu1, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
 
         # calculate the non-interacting susceptibility of the model
         chi0_dlr_wk = 2*imtime_bubble_chi0_wk(self.g0_dlr_wk, nw=2, verbose=False)
 
         # change target_shape (we need (1,1))
         self.chi0_dlr_wk = self.change_target_shape(g_dlr_wk=chi0_dlr_wk)
+
+    def imtime_bubble_chi2_wk(self):
+        """
+        Calculates chi2(r,tau) = - G2(r,tau)*G0(-r,-tau) - G2(-r,-tau)*G0(r,tau) in wk-space.
+
+        Requires
+        --------
+        self.g0_dlr_wk and self.g2_dlr_wk must have been calculated
+
+        Parameters
+        ----------
+        self                :   self
+
+        Returns
+        -------
+        self.chi2_dlr_wk    :   second-level approximation of bubble in TPSC
+        """
+
+        # Fourier transform Gs to real space
+        G2_dlr_tr = self.fourier_wk_to_tr(self.g2_dlr_wk)
+        G2_dlr_mtr = self.fourier_wk_to_mtr(self.g2_dlr_wk)
+        G0_dlr_tr = self.fourier_wk_to_tr(self.g0_dlr_wk)
+        G0_dlr_mtr = self.fourier_wk_to_mtr(self.g0_dlr_wk)
+
+        # initialize chi2_dlr_tr
+        chi2_dlr_tr = self.fourier_wk_to_tr(self.chi0_dlr_wk.copy())
+
+        # calculate chi2
+        chi2_dlr_tr.data[:] = -G2_dlr_tr.data*G0_dlr_mtr.data - G2_dlr_mtr.data*G0_dlr_tr.data
+        self.chi2_dlr_wk = self.fourier_tr_to_wk(chi2_dlr_tr)
 
     def Usp_root(self, Usp):
         """
@@ -730,25 +804,20 @@ class tpsc_solver:
         """
 
         # define effective potential
-        V = self.U/8*(3*self.Usp*self.chi_sp + self.Uch*self.chi_ch)
+        V_dlr_wk = self.U/8*(3*self.Usp*self.chi1_sp_dlr_wk + self.Uch*self.chi1_ch_dlr_wk)
 
         # get V(-t,-r)
-        V = V.conjugate()
-        V = fourier_wk_to_wr(V)
-        V = fourier_wr_to_tr(V)
-        V = V.conjugate()
+        V_dlr_mtr = self.fourier_wk_to_mtr(V_dlr_wk)
 
         # get G(t,r)
-        g0_dlr_wr = fourier_wk_to_wr(self.g0_dlr_wk)
-        g0_dlr_tr = fourier_wr_to_tr(g0_dlr_wr)
+        g0_dlr_tr = self.fourier_wk_to_tr(self.g0_dlr_wk)
 
         # multiply V(-t,-r) * G0(t,r) = Sigma(t,r)
-        Sigma2_dlr_tr = g0_dlr_tr.copy()    # the 2 means second level of approximation
-        Sigma2_dlr_tr.data[:] = V.data[:] * g0_dlr_tr.data[:]
-
+        Sigma2_dlr_tr = g0_dlr_tr.copy()    # the 2 means second level of approximation, must be fermionic
+        Sigma2_dlr_tr.data[:] = V_dlr_mtr.data * g0_dlr_tr.data
+        
         # transform Sigma(t,r) to Sigma(w,k)
-        Sigma2_dlr_wr = fourier_tr_to_wr(Sigma2_dlr_tr)
-        self.Sigma2_dlr_wk = fourier_wr_to_wk(Sigma2_dlr_wr)
+        self.Sigma2_dlr_wk = self.fourier_tr_to_wk(Sigma2_dlr_tr)
 
     def calc_G_from_Sigma(self, Sigma_dlr_wk):
         """

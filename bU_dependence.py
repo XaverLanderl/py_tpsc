@@ -2,9 +2,9 @@
 from TPSC_TRIQS_library import *
 
 # Set parameter (lists)
-beta_list = np.linspace(0.1,10,10)
+beta_list = 1/np.linspace(0.05, 1, 10)
 U_list = np.array([1,2,3,4,5])
-n = 1
+n = 1.2
 
 # get filename
 file_name = 'betaUdependence_n' + str(n) + '.h5'
@@ -21,6 +21,8 @@ model = tpsc_solver(n=n, verbose=False, plot=False)
 print('----- Start! -----')
 
 # Calculate beta- and U-dependence
+num_iter = beta_list.size * U_list.size
+counter = 1
 start = time.time()
 for ind_b, beta in enumerate(beta_list):
 
@@ -34,6 +36,8 @@ for ind_b, beta in enumerate(beta_list):
 
         # print out progress
         print('beta = ' + str(beta) + ', U = ' + str(U))
+        print('calculation ' + str(counter) + '/' + str(num_iter))
+        counter += 1
 
         # run model
         model.run()
@@ -47,7 +51,7 @@ for ind_b, beta in enumerate(beta_list):
 end = time.time()
 
 print('----- Done! -----')
-print('Runtime = ' + str(end-start) + 's')
+print('Runtime = ' + str((end-start)/60) + 'min')
 print('----- Saving! -----')
 
 # Save data to archive

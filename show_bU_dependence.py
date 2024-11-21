@@ -2,7 +2,7 @@
 from TPSC_TRIQS_library import *
 
 # which density?
-n = 1.0
+n = 1.2
 
 # get filename
 file_name = 'betaUdependence_n' + str(n) + '.h5'
