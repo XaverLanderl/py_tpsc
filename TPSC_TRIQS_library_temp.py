@@ -1,19 +1,6 @@
 ### IMPORTS ###
-from triqs.gf import *
-from triqs.lattice import BravaisLattice, BrillouinZone, TightBinding
-from triqs.lattice.tight_binding import TBLattice, dos
-from triqs_tprf.lattice import lattice_dyson_g0_wk
-from triqs_tprf.lattice import *
-from triqs_tprf.lattice_utils import imtime_bubble_chi0_wk
-from triqs.plot.mpl_interface import oplot, plt
-import triqs.utility.mpi as mpi
-import numpy as np
-from matplotlib import pyplot as plt
-from scipy.optimize import brentq
-from h5 import HDFArchive
-import time
+from Gf_Utils import *
 ### IMPORTS ###
-
 
 
 ### TPSC SOLVER CLASS ###
@@ -129,7 +116,7 @@ class tpsc_solver:
             self.vprint(f'Runtime of plots = {(t4 - t3):.2f}s.')
         self.vprint("DONE!")
 
-    def calc_first_level_approx(self, Uchmax=1000.):
+    def calc_first_level_approx(self, Uch_max=1000.):
         """
         Runs the first-level approximation of the TPSC-Calculation on the specified model.
         If docc is specified in the model, it will be used to evaluate the sum rules.
@@ -138,9 +125,7 @@ class tpsc_solver:
         Parameters
         ----------
         self            : self
-        double Uchmin   : lower bound for Uch
-            default     : Uchmin = 0.
-        double Uchmax   : upper bound for Uch
+        double Uch_max  : upper bound for Uch
             default     : Uchmax = 1000.
         
         Returns
@@ -167,23 +152,23 @@ class tpsc_solver:
         # calculate vertices
         self.vprint()
         self.vprint("   Calculating Usp...")
-        self.calc_Usp()
+        self.Usp = self.calc_Usp(chi0_dlr_wk=self.chi0_dlr_wk)
         
         self.vprint()
         self.vprint("   Calculating Uch...")
-        self.calc_Uch(Uchmax=Uchmax)
+        self.Uch = self.calc_Uch(chi0_dlr_wk=self.chi0_dlr_wk, Usp=self.Usp, Uch_max=Uch_max)
 
         # calculate susceptibilities
         self.vprint()
         self.vprint("   Calculate TPSC-spin- and charge-susceptibilities...")
-        self.chi1_sp_dlr_wk = self.solve_rpa(self.Usp)
-        self.chi1_ch_dlr_wk = self.solve_rpa(-self.Uch)
+        self.chi1_sp_dlr_wk = solve_Hubbard_RPA(chi0_wk=self.chi0_dlr_wk, U=self.Usp)
+        self.chi1_ch_dlr_wk = solve_Hubbard_RPA(chi0_wk=self.chi0_dlr_wk, U=-self.Uch)
         
         # calculate double occupation
         if self.use_tpsc_ansatz == True:
             self.vprint()
             self.vprint("   Calculate double occupation...")
-            self.calc_docc()
+            self.docc = self.calc_docc(Usp=self.Usp)
         
         # print out results
         self.vprint()
@@ -252,8 +237,8 @@ class tpsc_solver:
         self.vprint()
         self.vprint("------------------------------------------------------------------------------------------")
         self.vprint('Doing self-consistency check of first-level approximation...')
-        self.check_sum_rule = self.k_iw_sum(self.chi1_sp_dlr_wk + self.chi1_ch_dlr_wk) - (2*self.n - self.n**2)
-        self.vprint(f'The sum rule is fulfilled with an accuracy of {abs(self.check_sum_rule)}.')
+        self.check_sum_rule = k_iw_sum(self.chi1_sp_dlr_wk + self.chi1_ch_dlr_wk) - (2*self.n - self.n**2)
+        self.vprint(f'The sum rule is fulfilled with an accuracy of {float(abs(self.check_sum_rule))}.')
 
         self.vprint("------------------------------------------------------------------------------------------")
         self.vprint('Doing self-consistency check of second-level approximation...')
@@ -266,14 +251,14 @@ class tpsc_solver:
         F2_dlr_wk = Sigma_dlr_wk * self.g2_dlr_wk
 
         # get traces
-        trace_F1 = self.k_iw_sum(F1_dlr_wk) / self.U
-        trace_F2 = self.k_iw_sum(F2_dlr_wk) / self.U
+        trace_F1 = k_iw_sum(F1_dlr_wk) / self.U
+        trace_F2 = k_iw_sum(F2_dlr_wk) / self.U
 
         # get the relative difference
-        rel_diff = np.abs((trace_F1 - trace_F2) / trace_F1) * 100
+        rel_diff = float(np.abs((trace_F1 - trace_F2) / trace_F1) * 100)
 
         # check consistency
-        self.vprint('Sum_k {Sigma^(2)(k) * G^(1)(k)} - <n_up * n_down> = ' + str(np.abs(trace_F1 - self.docc)))
+        self.vprint('Sum_k {Sigma^(2)(k) * G^(1)(k)} - <n_up * n_down> = ' + str(float(np.abs(trace_F1 - self.docc))))
         self.vprint(f'Relative difference of traces = {rel_diff:.2f}%')
     ### METHODS TO RUN THE CALCULATION ###
 
@@ -285,106 +270,6 @@ class tpsc_solver:
                 mpi.report(args[0])
             else:
                 mpi.report('')
-        
-    def solve_rpa(self, U):
-        """
-        Calculates the rpa-susceptibility from the non-interacting susceptibility.
-
-        Requires
-        --------
-        calc_noninteracting_gf must have been called.
-
-        Parameters
-        ----------
-        self        : self
-        double U    : RPA vertex for charge/spin susceptibility
-
-        Returns
-        -------
-        Green's Function object containing the RPA-like charge (U < 0) or spin (U > 0) susceptibility for the given vertex
-        Mesh is the same as the mesh of the non-interacting susceptibility.
-        target_shape is the same as self.chi0_dlr_wk, which normally is (1,1)
-        """
-
-        # initialize RPA susceptibility
-        chi_dlr_wk = self.chi0_dlr_wk.copy()
-
-        # fill with data
-        chi_dlr_wk.data[:] = self.chi0_dlr_wk.data[:]/(1 - U/2*self.chi0_dlr_wk.data[:])
-
-        # return results
-        return chi_dlr_wk
-        
-    def k_sum(self, g_dlr_wk):
-        """
-        Calculates the k-sum over the passed Green's function.
-        
-        Requires
-        --------
-        g_dlr_wk must be defined on a MeshDLRImFreq-mesh.
-        K-dependence must be along the second axis.
-        
-        Parameters
-        ----------
-        self                : self
-        triqs.gf g_dlr_wk   : TRIQS Green's function object
-                            : must be defined on MeshProduct(iw_(dlr_)mesh, k_mesh)
-
-        Returns
-        -------
-        triqs.gf            : Green's function with same first mesh as input
-                              target_shape=(1,1)
-        """
-
-        # fourier-transform
-        g_dlr_wr = fourier_wk_to_wr(g_dlr_wk)
-
-        # get meshes
-        iw_dlr_mesh, r_mesh = g_dlr_wr.mesh.components
-        r_0 = r_mesh[0]
-
-        # initialize local Gf
-        g_dlr_w = Gf(mesh=iw_dlr_mesh, target_shape=g_dlr_wk.target_shape)
-        
-        # evaluate at r = 0
-        for freq in iw_dlr_mesh:
-            g_dlr_w[freq] = g_dlr_wr[freq,r_0]
-        
-        # return result
-        return g_dlr_w
-    
-    def k_iw_sum(self, g_dlr_wk):
-        """
-        Calculates the k- and Matsubara sum over the passed Green's function.
-        
-        Requires
-        --------
-        g_dlr_wk must be defined on a MeshDLRImFreq-mesh.
-        
-        Parameters
-        ----------
-        self                : self
-        triqs.gf g_dlr_wk   : TRIQS Green's function object
-
-        Returns
-        -------
-        double              : k- and Matsubara sum over passed Green's function
-                              target_shape=()
-        """
-
-        # get mesh
-        iw_dlr_mesh = g_dlr_wk.mesh.components[0]
-
-        # define auxiliary quantity not dependent on k
-        g_dlr_w = self.k_sum(g_dlr_wk=g_dlr_wk)
-        
-        # return result based on statistic (density works for normal and DLR meshes)
-        if iw_dlr_mesh.statistic == 'Boson':
-            result = -density(g_dlr_w).real    # bosonic time order does not introduce the necessary -sign
-        elif iw_dlr_mesh.statistic == 'Fermion':
-            result = density(g_dlr_w).real
-        
-        return float(result)
             
     def change_target_shape(self, g_dlr_wk):
         """
@@ -413,182 +298,6 @@ class tpsc_solver:
             
         # return new gf-object
         return result
-    
-    # custon fourier transforms
-    def fourier_wk_to_tr(self, g_wk):
-        """
-        Fourier-transforms a Green's function from wk to tr representation.
-
-        Parameters
-        ----------
-        self    :   self
-        g_wk    :   Green's function, MeshProduct(ImFreqDLRMesh, BZMesh)
-
-        Returns
-        -------
-        g_tr    :   Green's function, MeshProduct(ImTimeDLRMesh, CycLat)
-        """
-
-        # fourier transform
-        g_wr = fourier_wk_to_wr(g_wk)
-        g_tr = fourier_wr_to_tr(g_wr)
-
-        # return result
-        return g_tr
-
-    def fourier_wk_to_mtr(self, g_wk):
-        """
-        Fourier-transforms a Green's function from wk to (-t,-r) representation.
-
-        Parameters
-        ----------
-        self    :   self
-        g_wk    :   Green's function, MeshProduct(ImFreqDLRMesh, BZMesh)
-
-        Returns
-        -------
-        g_mtr   :   Green's function, MeshProduct(ImTimeDLRMesh, CycLat)
-        """
-
-        # fourier transform
-        g_wk_conj = g_wk.conjugate()
-        g_wr_conj = fourier_wk_to_wr(g_wk_conj)
-        g_tr_conj = fourier_wr_to_tr(g_wr_conj)
-        g_mtr = g_tr_conj.conjugate()
-
-        # return result
-        return g_mtr
-
-    def fourier_tr_to_wk(self, g_tr):
-        """
-        Fourier-transforms a Green's function from tr to wk representation.
-
-        Parameters
-        ----------
-        self    :   self
-        g_wk    :   Green's function, MeshProduct(ImTimeDLRMesh, CycLat)
-
-        Returns
-        -------
-        g_tr    :   Green's function, MeshProduct(ImFreqDLRMesh, BZMesh)
-        """
-
-        # fourier transform
-        g_wr = fourier_tr_to_wr(g_tr)
-        g_wk = fourier_wr_to_wk(g_wr)
-
-        # return result
-        return g_wk
-
-    def n_root(self, mu, Sigma_dlr_wk=None):
-        """
-        Calculates the density as a function of mu.
-
-        Parameters
-        ----------
-        self            : self
-        mu              : chemical potential
-        Sigma_dlr_wk    : self-energy (iw_mesh must be first axis)
-                        : if None, calculates non-interacting density
-        """
-
-        if Sigma_dlr_wk is not None:
-            iw_mesh = Sigma_dlr_wk.mesh.components[0]
-        else:
-            iw_mesh = self.iw_dlr_mesh
-
-        if Sigma_dlr_wk is not None:
-            # Dyson equation
-            g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=iw_mesh))
-            G2 = inverse(g0_dlr_wk_inv - Sigma_dlr_wk)
-        elif Sigma_dlr_wk == None:
-            # Only non-interacting Green's function
-            G2 = lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
-        
-        # return density
-        return self.k_iw_sum(G2) - self.n/2     # n/2 because G2 is Green's function per spin.
-    
-    def calc_mu(self, Sigma_dlr_wk=None):
-        """
-        Calculates the chemical potential for the given self-energy.
-
-        Parameters
-        ----------
-        self            : self
-        Sigma_dlr_wk    : self-energy (iw_mesh must be first axis)
-                        : if None, Sigma is set to zero
-        """
-
-        # find the mu that leads to the correct density
-        mu_min = np.min(self.eps_k.data.real)
-        mu_max = np.max(self.eps_k.data.real)
-        mu_result = brentq(lambda m: self.n_root(mu=m, Sigma_dlr_wk=Sigma_dlr_wk), mu_min, mu_max)
-
-        # return the result
-        return mu_result
-    
-    def add_k_ind_gf(self, g_dlr_wk, g_dlr_w):
-        """
-        Adds a k-independent Green's function to a k-dependent Green's function.
-
-        Parameters
-        ----------
-        self        : self
-        g_dlr_wk    : k-dependent Green's function; iw must be on first axis.
-        g_dlr_w     : k-independent Green's function to be subtracted
-                    : must both have the same Matsubara-mesh
-                    : must both have the same target_shape
-
-        Returns
-        -------
-        result      : TRIQS Green's function object of same mesh and target_shape as g_dlr_wk
-        """
-
-        # check inputs
-        if not g_dlr_wk.target_shape == g_dlr_w.target_shape:
-            raise AssertionError('Input Green\'s functions must have the same target_shape!')
-        if not g_dlr_wk.mesh.components[0] == g_dlr_w.mesh:
-            raise AssertionError('Input Green\'s functions must have the same imfreq_mesh!')
-
-        # initialize result
-        result = Gf(mesh = g_dlr_wk.mesh, target_shape=g_dlr_wk.target_shape)
-        
-        # feed values (utilize numpy broadcasting!)
-        result.data[:] = g_dlr_wk.data[:] + g_dlr_w.data[:,None]
-
-        # return result
-        return result
-
-    def get_nonlocal_gf(self, g_dlr_wk):
-        """
-        Removes the local part of passed Green's function.
-
-        Parameters
-        ----------
-        self        : self
-        g_dlr_wk    : Green's function; iw must be on first axis
-
-        Returns
-        -------
-        result      : TRIQS Green's function object of same mesh and target_shape as g_dlr_wk
-        """
-
-        # check input
-        wmesh = g_dlr_wk.mesh.components[0]
-        if not (isinstance(wmesh, MeshImFreq) or isinstance(wmesh, MeshDLRImFreq)):
-            raise TypeError('The first axis must be MeshImFreq or MeshDLRImFreq!')
-        
-        # get local Gf
-        g_dlr_w = self.k_sum(g_dlr_wk)
-        
-        # initialize result
-        result = g_dlr_wk.copy()
-
-        # subtract local part from g_dlr_wr
-        result.data[:] = g_dlr_wk.data[:] - g_dlr_w.data[:,None]
-
-        # return result
-        return result
     ### HELPER FUNCTIONS ###
 
 
@@ -615,7 +324,7 @@ class tpsc_solver:
         self.iw_dlr_mesh = MeshDLRImFreq(beta=self.beta, statistic='Fermion', w_max=self.w_max, eps=self.eps)
 
         # get mu from n (need for G0 and bubble)
-        self.mu1 = self.calc_mu(Sigma_dlr_wk=None)
+        self.mu1 = calc_mu(dens=self.n, eps_k=self.eps_k, Sigma_wk=self.iw_dlr_mesh)
         
         # calculate non-interacting Green's function of the model
         self.g0_dlr_wk = lattice_dyson_g0_wk(mu=self.mu1, e_k=self.eps_k, mesh=self.iw_dlr_mesh)
@@ -644,29 +353,26 @@ class tpsc_solver:
         """
 
         # Fourier transform Gs to real space
-        G2_dlr_tr = self.fourier_wk_to_tr(self.g2_dlr_wk)
-        G2_dlr_mtr = self.fourier_wk_to_mtr(self.g2_dlr_wk)
-        G0_dlr_tr = self.fourier_wk_to_tr(self.g0_dlr_wk)
-        G0_dlr_mtr = self.fourier_wk_to_mtr(self.g0_dlr_wk)
+        G2_dlr_tr = fourier_wk_to_tr(self.g2_dlr_wk)
+        G2_dlr_mtr = fourier_wk_to_mtr(self.g2_dlr_wk)
+        G0_dlr_tr = fourier_wk_to_tr(self.g0_dlr_wk)
+        G0_dlr_mtr = fourier_wk_to_mtr(self.g0_dlr_wk)
 
         # initialize chi2_dlr_tr
-        chi2_dlr_tr = self.fourier_wk_to_tr(self.chi0_dlr_wk.copy())
+        chi2_dlr_tr = fourier_wk_to_tr(self.chi0_dlr_wk.copy())
 
         # calculate chi2
         chi2_dlr_tr.data[:] = -G2_dlr_tr.data*G0_dlr_mtr.data - G2_dlr_mtr.data*G0_dlr_tr.data
-        self.chi2_dlr_wk = self.fourier_tr_to_wk(chi2_dlr_tr)
+        self.chi2_dlr_wk = fourier_tr_to_wk(chi2_dlr_tr)
 
-    def Usp_root(self, Usp):
+    def Usp_root(self, chi0_dlr_wk, Usp):
         """
         Function whose root is the self-consistent value for Usp.
-        
-        Requires
-        --------
-        calc_noninteracting_gf must have been called (requirement for solve_rpa).
         
         Parameters
         ----------
         self        : self
+        chi0_dlr_wk : non-interacting susceptibility
         double Usp  : given value of spin vertex
         
         Returns
@@ -675,7 +381,7 @@ class tpsc_solver:
         """
         
         # calculate sum over RPA-like susceptibility
-        chi_sum = self.k_iw_sum(self.solve_rpa(Usp))
+        chi_sum = k_iw_sum(solve_Hubbard_RPA(chi0_wk=chi0_dlr_wk, U=Usp))
         
         # calculate spin sum rule
         if self.use_tpsc_ansatz == True:
@@ -686,19 +392,15 @@ class tpsc_solver:
         # return difference
         return chi_sum - sum_rule
     
-    def Uch_root(self, Uch):
+    def Uch_root(self, chi0_dlr_wk, Usp, Uch):
         """
         Function whose root is the self-consistent value for Uch.
-        
-        Requires
-        --------
-        calc_noninteracting_gf must have been called (requirement for solve_rpa).
-        calc_Usp must have been called (need self-consistent value for Usp, in charge sum rule).
         
         Parameters
         ----------
         self        : self
-        double Usp  :  given value of spin vertex
+        chi0_dlr_wk : non-interacting susceptibility
+        double Usp  : (previously determined) spin vertex
         double Uch  : given value of charge vertex
         
         Returns
@@ -707,53 +409,51 @@ class tpsc_solver:
         """
         
         # calculate sum over RPA-like susceptibility
-        chi_sum = self.k_iw_sum(self.solve_rpa(-Uch))
+        chi_sum = k_iw_sum(solve_Hubbard_RPA(chi0_wk=chi0_dlr_wk, U=-Uch))
         
         # calculate charge sum rule
         if self.use_tpsc_ansatz == True:
-            sum_rule = self.n + self.Usp/self.U*self.n*self.n/2 - self.n*self.n
+            sum_rule = self.n + Usp/self.U*self.n*self.n/2 - self.n*self.n
         else:
             sum_rule = self.n + 2*self.docc - self.n*self.n
         
         # return the difference
         return chi_sum - sum_rule
     
-    def calc_Usp(self):
+    def calc_Usp(self, chi0_dlr_wk):
         """
         Calculates Usp self-consistently to obey spin sum rule.
         
-        Requires
-        --------
-        calc_chi0 must have been called (requirement for Usp_root)
-        
         Parameters
         ----------
-        self    : self
+        self        : self
+        chi0_dlr_wk : non-interacting susceptibility
 
         Returns
         -------
-        double  : Usp
+        double      : Usp
 
         """
 
         # set maximum value of Usp (where chi diverges)
-        Uspmax = 2.0/np.amax(self.chi0_dlr_wk.data).real - 1e-7 # the 1e-7 is chosen for numerical stability.
+        Usp_max = 2.0/np.amax(chi0_dlr_wk.data).real - 1e-7 # the 1e-7 is chosen for numerical stability.
         
         # calculate Usp self-consistently
-        self.Usp = brentq(lambda x: self.Usp_root(x), 0.0, Uspmax, xtol=self.Usp_tol)
+        Usp = brentq(lambda x: self.Usp_root(chi0_dlr_wk=chi0_dlr_wk, Usp=x), 0.0, Usp_max, xtol=self.Usp_tol)
+
+        # return result
+        return Usp
         
-    def calc_Uch(self, Uchmax=1000.):
+    def calc_Uch(self, chi0_dlr_wk, Usp, Uch_max=1000.):
         """
         Calculates Uch self-consistently to obey charge sum rule.
         
-        Requires
-        --------
-        calc_chi0 must have been called (requirement for Uch_root)
-        calc_Usp must have been called (requirement for Uch_root)
-        
         Parameters
         ----------
-        self    : self
+        self        : self
+        chi0_dlr_wk : non-interacting susceptibility
+        Usp         : spin-vertex required for sum rule
+        Uch_max     : maximum search value for Uch (default = 1000.)
 
         Returns
         -------
@@ -762,26 +462,27 @@ class tpsc_solver:
         """
         
         # calculate Usp self-consistently
-        self.Uch = brentq(lambda x: self.Uch_root(x), 0.0, Uchmax, xtol=self.Uch_tol)
+        Uch = brentq(lambda x: self.Uch_root(chi0_dlr_wk=chi0_dlr_wk, Usp=Usp, Uch=x), 0.0, Uch_max, xtol=self.Uch_tol)
         
-    def calc_docc(self):
+        # return result
+        return Uch
+    
+    def calc_docc(self, Usp):
         """
         Calculates the double occupation.
-        
-        Requires
-        --------
-        calc_Usp must have been called
         
         Parameters
         ----------
         self    : self
+        Usp     : spin vertex
         
         Returns
         -------
-        Sets self.docc
+        double  : docc
         """
         
-        self.docc = self.Usp/self.U*self.n*self.n/4
+        # calculate and return result
+        return Usp/self.U*self.n*self.n/4
     ### FIRST LEVEL OF APPROXIMATION ###
 
 
@@ -807,17 +508,17 @@ class tpsc_solver:
         V_dlr_wk = self.U/8*(3*self.Usp*self.chi1_sp_dlr_wk + self.Uch*self.chi1_ch_dlr_wk)
 
         # get V(-t,-r)
-        V_dlr_mtr = self.fourier_wk_to_mtr(V_dlr_wk)
+        V_dlr_mtr = fourier_wk_to_mtr(V_dlr_wk)
 
         # get G(t,r)
-        g0_dlr_tr = self.fourier_wk_to_tr(self.g0_dlr_wk)
+        g0_dlr_tr = fourier_wk_to_tr(self.g0_dlr_wk)
 
         # multiply V(-t,-r) * G0(t,r) = Sigma(t,r)
         Sigma2_dlr_tr = g0_dlr_tr.copy()    # the 2 means second level of approximation, must be fermionic
         Sigma2_dlr_tr.data[:] = V_dlr_mtr.data * g0_dlr_tr.data
         
         # transform Sigma(t,r) to Sigma(w,k)
-        self.Sigma2_dlr_wk = self.fourier_tr_to_wk(Sigma2_dlr_tr)
+        self.Sigma2_dlr_wk = fourier_tr_to_wk(Sigma2_dlr_tr)
 
     def calc_G_from_Sigma(self, Sigma_dlr_wk):
         """
@@ -842,7 +543,7 @@ class tpsc_solver:
         mesh = Sigma_dlr_wk.mesh.components[0]
 
         # calculate mu
-        mu = self.calc_mu(Sigma_dlr_wk=Sigma_dlr_wk)
+        mu = calc_mu(dens=self.n, eps_k=self.eps_k, Sigma_wk=Sigma_dlr_wk)
 
         # calculate G
         g0_dlr_wk_inv = inverse(lattice_dyson_g0_wk(mu=mu, e_k=self.eps_k, mesh=mesh))
@@ -907,7 +608,7 @@ class tpsc_solver:
         """
 
         # get local Green's function
-        G0_loc_dlr_w = self.k_sum(self.g0_dlr_wk)
+        G0_loc_dlr_w = k_sum(self.g0_dlr_wk)
 
         # transform to ImFreq mesh
         G0_loc_dlr = make_gf_dlr(G0_loc_dlr_w)
@@ -919,7 +620,7 @@ class tpsc_solver:
         # return local spectral function
         self.A0_loc = -1.0/np.pi * G0_loc_rw.imag
 
-    def evaluate_spectral_function(self, n_iw=128, window=(-10, 10), n_w=2001):
+    def evaluate_spectral_function(self, n_iw=128, window=(-10, 10), n_w=1000):
         """
         Calculates the local spectral function of the model.
 
@@ -940,7 +641,7 @@ class tpsc_solver:
         """
 
         # get local Green's function
-        G2_loc_dlr_w = self.k_sum(self.g2_dlr_wk)
+        G2_loc_dlr_w = k_sum(self.g2_dlr_wk)
 
         # transform to ImFreq mesh
         G2_loc_dlr = make_gf_dlr(G2_loc_dlr_w)
