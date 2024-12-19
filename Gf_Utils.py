@@ -198,6 +198,36 @@ def calc_mu(dens, eps_k, Sigma_wk):
     # return result
     return mu_result
 
+def calc_G_from_Sigma(n, eps_k, Sigma_wk):
+    """
+    Calculates the Green's function for given density, dispersion, as well as the given self-energy.
+
+    Requires
+    --------
+    Sigma_dlr_wk must be given on a MeshDLRImFreq.
+
+    Parameters
+    ----------
+    n           : density
+    eps_k       : dispersion relation
+    Sigma_wk    : self-energy
+
+    Returns
+    -------
+    G_wk        : Green's function with given self-energy and correct chemical potential
+    mu          : chemical potential
+    """
+
+    # calculate mu
+    mu = calc_mu(dens=n, eps_k=eps_k, Sigma_wk=Sigma_wk)
+
+    # calculate G
+    g0_wk_inv = inverse(lattice_dyson_g0_wk(mu=mu, e_k=eps_k, mesh=Sigma_wk.mesh.components[0]))
+    G = inverse(g0_wk_inv - Sigma_wk)
+
+    # return results
+    return G, mu
+
 
 
 ### ADD AND SUBTRACT LOCAL GREEN'S FUNCTIONS ###
